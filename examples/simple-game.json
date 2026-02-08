@@ -1,0 +1,394 @@
+{
+    "format": "mtg-replay",
+    "version": "1.1.0",
+    "meta": {
+        "game_id": "game-example-001",
+        "timestamp": "2026-02-08T14:30:00Z",
+        "game_type": "Constructed",
+        "players": {
+            "P1": {
+                "name": "Alice",
+                "deck_name": "Burn",
+                "deck_hash": "a3f8c2d1e9b7f604"
+            },
+            "P2": {
+                "name": "Bob",
+                "deck_name": "Control",
+                "deck_hash": "7b2e5a9c4d1f8306"
+            }
+        },
+        "winner": "P1",
+        "win_condition": "life_zero",
+        "conceded": false,
+        "turns": 6,
+        "duration_seconds": 240
+    },
+    "seed": 1707397800000,
+    "card_index": {
+        "Mountain": {
+            "name": "Mountain",
+            "cost": "",
+            "type": "Basic Land — Mountain"
+        },
+        "Lightning Bolt": {
+            "name": "Lightning Bolt",
+            "cost": "{R}",
+            "type": "Instant",
+            "oracle_id": "8a2c9d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e"
+        },
+        "Monastery Swiftspear": {
+            "name": "Monastery Swiftspear",
+            "cost": "{R}",
+            "type": "Creature — Human Monk"
+        },
+        "Island": {
+            "name": "Island",
+            "cost": "",
+            "type": "Basic Land — Island"
+        },
+        "Counterspell": {
+            "name": "Counterspell",
+            "cost": "{U}{U}",
+            "type": "Instant"
+        }
+    },
+    "initial_state": {
+        "turn": 0,
+        "phase": "PREGAME",
+        "step": "PREGAME",
+        "priority": null,
+        "active_player": null,
+        "players": {
+            "P1": {
+                "life": 20,
+                "mana_pool": [],
+                "counters": {},
+                "lands_played_this_turn": 0,
+                "max_hand_size": 7
+            },
+            "P2": {
+                "life": 20,
+                "mana_pool": [],
+                "counters": {},
+                "lands_played_this_turn": 0,
+                "max_hand_size": 7
+            }
+        },
+        "zones": {
+            "battlefield": [],
+            "stack": [],
+            "exile": [],
+            "P1:hand": ["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            "P1:library": { "count": 53 },
+            "P1:graveyard": [],
+            "P2:hand": ["c101", "c102", "c103", "c104", "c105", "c106", "c107"],
+            "P2:library": { "count": 53 },
+            "P2:graveyard": []
+        },
+        "objects": {
+            "c1": {
+                "card_ref": "Mountain",
+                "controller": "P1",
+                "owner": "P1",
+                "zone": "P1:hand",
+                "tapped": false,
+                "counters": {}
+            },
+            "c2": {
+                "card_ref": "Monastery Swiftspear",
+                "controller": "P1",
+                "owner": "P1",
+                "zone": "P1:hand",
+                "tapped": false,
+                "counters": {}
+            },
+            "c3": {
+                "card_ref": "Lightning Bolt",
+                "controller": "P1",
+                "owner": "P1",
+                "zone": "P1:hand",
+                "tapped": false,
+                "counters": {}
+            }
+        }
+    },
+    "log_l1": [
+        {
+            "i": 0,
+            "t": "T1.UP",
+            "a": "SYS",
+            "type": "PHASE_CHANGE",
+            "data": {
+                "phase": "UPKEEP",
+                "step": "UPKEEP",
+                "active_player": "P1"
+            }
+        },
+        {
+            "i": 1,
+            "t": "T1.MP1",
+            "a": "SYS",
+            "type": "PHASE_CHANGE",
+            "data": {
+                "phase": "MAIN_1",
+                "step": "MAIN",
+                "active_player": "P1"
+            }
+        },
+        {
+            "i": 2,
+            "t": "T1.MP1:0",
+            "a": "P1",
+            "type": "PLAY_LAND",
+            "data": {
+                "card": "c1",
+                "card_name": "Mountain"
+            }
+        },
+        {
+            "i": 3,
+            "t": "T1.MP1:0",
+            "a": "SYS",
+            "type": "MOVE",
+            "data": {
+                "obj": "c1",
+                "card_name": "Mountain",
+                "from": "P1:hand",
+                "to": "battlefield",
+                "visibility": "public"
+            }
+        },
+        {
+            "i": 4,
+            "t": "T1.MP1:1",
+            "a": "P1",
+            "type": "CAST",
+            "data": {
+                "card": "c2",
+                "card_name": "Monastery Swiftspear",
+                "cost": {
+                    "mana": ["{R}"],
+                    "additional": [],
+                    "alternative": null
+                },
+                "modes": [],
+                "x": null,
+                "targets": [],
+                "choices": {}
+            }
+        },
+        {
+            "i": 5,
+            "t": "T1.MP1:1",
+            "a": "SYS",
+            "type": "PUT_ON_STACK",
+            "data": {
+                "stack": "s1",
+                "kind": "SPELL",
+                "source": "c2",
+                "controller": "P1",
+                "card": "c2",
+                "card_name": "Monastery Swiftspear",
+                "targets": [],
+                "choices": {}
+            }
+        },
+        {
+            "i": 6,
+            "t": "T1.MP1:2",
+            "a": "P1",
+            "type": "PASS_PRIORITY",
+            "data": {}
+        },
+        {
+            "i": 7,
+            "t": "T1.MP1:2",
+            "a": "P2",
+            "type": "PASS_PRIORITY",
+            "data": {}
+        },
+        {
+            "i": 8,
+            "t": "T1.MP1:3",
+            "a": "SYS",
+            "type": "RESOLVE",
+            "data": {
+                "stack": "s1"
+            }
+        },
+        {
+            "i": 9,
+            "t": "T1.MP1:3",
+            "a": "SYS",
+            "type": "MOVE",
+            "data": {
+                "obj": "c2",
+                "card_name": "Monastery Swiftspear",
+                "from": "stack",
+                "to": "battlefield",
+                "visibility": "public"
+            }
+        },
+        {
+            "i": 10,
+            "t": "T1.END",
+            "a": "SYS",
+            "type": "PHASE_CHANGE",
+            "data": {
+                "phase": "END",
+                "step": "END",
+                "active_player": "P1"
+            }
+        },
+        {
+            "i": 11,
+            "t": "T2.UP",
+            "a": "SYS",
+            "type": "PHASE_CHANGE",
+            "data": {
+                "phase": "UPKEEP",
+                "step": "UPKEEP",
+                "active_player": "P2"
+            }
+        },
+        {
+            "i": 12,
+            "t": "T2.UP",
+            "a": "SYS",
+            "type": "RESOURCES",
+            "data": {
+                "player": "P2",
+                "land_count": 0,
+                "available_mana": 0
+            }
+        },
+        {
+            "i": 13,
+            "t": "T3.COMBAT:5",
+            "a": "SYS",
+            "type": "DAMAGE",
+            "data": {
+                "source": "c2",
+                "source_name": "Monastery Swiftspear",
+                "target": "P2",
+                "target_name": "Bob",
+                "amount": 1,
+                "type": "combat",
+                "prevented": 0
+            }
+        },
+        {
+            "i": 14,
+            "t": "T3.COMBAT:5",
+            "a": "SYS",
+            "type": "LIFE",
+            "data": {
+                "player": "P2",
+                "delta": -1,
+                "new_total": 19,
+                "cause": "Monastery Swiftspear"
+            }
+        }
+    ],
+    "views_l2": [
+        {
+            "u": 0,
+            "t_start": "T1.MP1",
+            "t_end": "T1.MP1:3",
+            "l1_range": [1, 9],
+            "decision_events": [2, 4],
+            "before": {
+                "turn": 1,
+                "phase": "MAIN_1",
+                "step": "MAIN",
+                "priority": "P1",
+                "active_player": "P1",
+                "players": {
+                    "P1": {
+                        "life": 20,
+                        "mana_pool": [],
+                        "counters": {},
+                        "lands_played_this_turn": 0
+                    },
+                    "P2": {
+                        "life": 20,
+                        "mana_pool": [],
+                        "counters": {},
+                        "lands_played_this_turn": 0
+                    }
+                },
+                "zones": {
+                    "battlefield": [],
+                    "P1:hand": ["c1", "c2", "c3", "c4", "c5", "c6", "c7"]
+                }
+            },
+            "stack": [
+                {
+                    "stack": "s1",
+                    "kind": "SPELL",
+                    "controller": "P1",
+                    "source": "c2",
+                    "card": "c2",
+                    "card_name": "Monastery Swiftspear",
+                    "targets": [],
+                    "choices": {},
+                    "linked_decision_event": 4,
+                    "mana_paid": ["R"],
+                    "outcome": "resolved"
+                }
+            ],
+            "after": {
+                "turn": 1,
+                "phase": "MAIN_1",
+                "step": "MAIN",
+                "priority": "P1",
+                "active_player": "P1",
+                "players": {
+                    "P1": {
+                        "life": 20,
+                        "mana_pool": [],
+                        "counters": {},
+                        "lands_played_this_turn": 1
+                    },
+                    "P2": {
+                        "life": 20,
+                        "mana_pool": [],
+                        "counters": {},
+                        "lands_played_this_turn": 0
+                    }
+                },
+                "zones": {
+                    "battlefield": ["c1", "c2"],
+                    "P1:hand": ["c3", "c4", "c5", "c6", "c7"]
+                },
+                "objects": {
+                    "c1": {
+                        "card_ref": "Mountain",
+                        "controller": "P1",
+                        "owner": "P1",
+                        "zone": "battlefield",
+                        "tapped": true,
+                        "counters": {}
+                    },
+                    "c2": {
+                        "card_ref": "Monastery Swiftspear",
+                        "controller": "P1",
+                        "owner": "P1",
+                        "zone": "battlefield",
+                        "tapped": false,
+                        "counters": {},
+                        "damage_marked": 0
+                    }
+                }
+            },
+            "annotations": {
+                "decision_quality": null,
+                "alternative_lines": [
+                    "Could hold Swiftspear to protect from removal"
+                ],
+                "key_moment": false,
+                "teaching_notes": "Standard turn 1 play for aggro: land + one-drop."
+            }
+        }
+    ]
+}

@@ -1,0 +1,417 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://github.com/YOUR_USERNAME/mtg-replay-notation/schema/replay-schema.json",
+    "title": "MTG Replay Notation",
+    "description": "Schema for MTG Replay & Learning Notation v1.1.0",
+    "type": "object",
+    "required": ["format", "version", "meta", "seed", "card_index", "initial_state", "log_l1"],
+    "properties": {
+        "format": {
+            "type": "string",
+            "const": "mtg-replay",
+            "description": "Format identifier"
+        },
+        "version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "description": "Semantic version of the format"
+        },
+        "meta": {
+            "$ref": "#/definitions/ReplayMeta"
+        },
+        "seed": {
+            "type": "integer",
+            "description": "Random seed for deterministic replay"
+        },
+        "card_index": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/CardDefinition"
+            },
+            "description": "Map of card names to their definitions"
+        },
+        "initial_state": {
+            "$ref": "#/definitions/GameState"
+        },
+        "log_l1": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/L1Event"
+            },
+            "description": "Level 1 event log"
+        },
+        "views_l2": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/L2Unit"
+            },
+            "description": "Level 2 learning units"
+        }
+    },
+    "definitions": {
+        "ReplayMeta": {
+            "type": "object",
+            "required": ["game_id", "timestamp", "game_type", "players"],
+            "properties": {
+                "game_id": {
+                    "type": "string",
+                    "description": "Unique identifier for this game"
+                },
+                "timestamp": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "When game started (ISO 8601)"
+                },
+                "game_type": {
+                    "type": "string",
+                    "description": "Format (Constructed, Limited, Commander, etc.)"
+                },
+                "players": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/PlayerMeta"
+                    }
+                },
+                "winner": {
+                    "type": ["string", "null"],
+                    "description": "Player ID of winner, 'draw', or null"
+                },
+                "win_condition": {
+                    "type": "string",
+                    "enum": ["life_zero", "commander_damage", "decked", "poison", "concession", "alternate_win", "draw"],
+                    "description": "How the game ended"
+                },
+                "conceded": {
+                    "type": "boolean",
+                    "description": "Whether any player conceded"
+                },
+                "turns": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total number of turns played"
+                },
+                "duration_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Real-time duration of game"
+                }
+            }
+        },
+        "PlayerMeta": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Player display name"
+                },
+                "deck_name": {
+                    "type": "string",
+                    "description": "Name of the deck used"
+                },
+                "deck_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{16}$",
+                    "description": "SHA-256 based deck identifier (16 hex chars)"
+                }
+            }
+        },
+        "CardDefinition": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "English card name"
+                },
+                "cost": {
+                    "type": "string",
+                    "description": "Mana cost in standard notation"
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Full type line"
+                },
+                "oracle_id": {
+                    "type": "string",
+                    "description": "Scryfall Oracle ID"
+                }
+            }
+        },
+        "GameState": {
+            "type": "object",
+            "properties": {
+                "turn": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "phase": {
+                    "type": "string"
+                },
+                "step": {
+                    "type": "string"
+                },
+                "priority": {
+                    "type": ["string", "null"]
+                },
+                "active_player": {
+                    "type": ["string", "null"]
+                },
+                "players": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/PlayerState"
+                    }
+                },
+                "zones": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "oneOf": [
+                            { "type": "array", "items": { "type": "string" } },
+                            { "type": "object", "properties": { "count": { "type": "integer" } } }
+                        ]
+                    }
+                },
+                "objects": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ObjectState"
+                    }
+                }
+            }
+        },
+        "PlayerState": {
+            "type": "object",
+            "properties": {
+                "life": {
+                    "type": "integer"
+                },
+                "mana_pool": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+                "counters": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" }
+                },
+                "lands_played_this_turn": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "max_hand_size": {
+                    "type": "integer"
+                }
+            }
+        },
+        "ObjectState": {
+            "type": "object",
+            "required": ["card_ref", "controller", "owner", "zone"],
+            "properties": {
+                "card_ref": {
+                    "type": "string",
+                    "description": "Reference to card in card_index"
+                },
+                "controller": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "zone": {
+                    "type": "string"
+                },
+                "tapped": {
+                    "type": "boolean"
+                },
+                "flipped": {
+                    "type": "boolean"
+                },
+                "face_down": {
+                    "type": "boolean"
+                },
+                "counters": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" }
+                },
+                "damage_marked": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "attached_to": {
+                    "type": ["string", "null"]
+                },
+                "notes": {
+                    "type": "object"
+                }
+            }
+        },
+        "L1Event": {
+            "type": "object",
+            "required": ["i", "t", "a", "type", "data"],
+            "properties": {
+                "i": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Event index"
+                },
+                "t": {
+                    "type": "string",
+                    "pattern": "^T[0-9]+\\.[A-Z0-9_]+(:[0-9]+)?$",
+                    "description": "Time marker"
+                },
+                "a": {
+                    "type": "string",
+                    "enum": ["P1", "P2", "P3", "P4", "SYS"],
+                    "description": "Actor"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "CAST", "ACTIVATE", "PLAY_LAND", "DECLARE_ATTACKERS", 
+                        "DECLARE_BLOCKERS", "PASS_PRIORITY", "MULLIGAN", "CHOOSE",
+                        "PUT_ON_STACK", "TRIGGER", "RESOLVE", "MOVE", "DAMAGE",
+                        "LIFE", "COUNTERS", "TAP", "PHASE_CHANGE", "RESOURCES",
+                        "STATE_BASED", "RANDOM"
+                    ],
+                    "description": "Event type"
+                },
+                "data": {
+                    "type": "object",
+                    "description": "Event-specific payload"
+                }
+            }
+        },
+        "L2Unit": {
+            "type": "object",
+            "required": ["u", "t_start", "t_end", "l1_range", "before", "after"],
+            "properties": {
+                "u": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Unit index"
+                },
+                "t_start": {
+                    "type": "string",
+                    "description": "Starting time marker"
+                },
+                "t_end": {
+                    "type": "string",
+                    "description": "Ending time marker"
+                },
+                "l1_range": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "Range of L1 event indices [start, end]"
+                },
+                "decision_events": {
+                    "type": "array",
+                    "items": { "type": "integer" },
+                    "description": "Indices of decision events"
+                },
+                "before": {
+                    "$ref": "#/definitions/GameState"
+                },
+                "stack": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/StackItem"
+                    }
+                },
+                "after": {
+                    "$ref": "#/definitions/GameState"
+                },
+                "annotations": {
+                    "$ref": "#/definitions/Annotations"
+                }
+            }
+        },
+        "StackItem": {
+            "type": "object",
+            "required": ["stack", "kind", "controller"],
+            "properties": {
+                "stack": {
+                    "type": "string",
+                    "description": "Stack object ID"
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": ["SPELL", "ABILITY", "TRIGGER"]
+                },
+                "controller": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                },
+                "card": {
+                    "type": "string"
+                },
+                "card_name": {
+                    "type": "string"
+                },
+                "targets": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Target"
+                    }
+                },
+                "choices": {
+                    "type": "object"
+                },
+                "linked_decision_event": {
+                    "type": "integer"
+                },
+                "mana_paid": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+                "outcome": {
+                    "type": "string",
+                    "enum": ["resolved", "countered", "fizzled", "exiled"]
+                }
+            }
+        },
+        "Target": {
+            "type": "object",
+            "required": ["slot", "obj"],
+            "properties": {
+                "slot": {
+                    "type": "string",
+                    "description": "Target slot name"
+                },
+                "obj": {
+                    "type": "string",
+                    "description": "Target object ID"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name"
+                },
+                "valid": {
+                    "type": "boolean",
+                    "description": "Whether target was legal"
+                }
+            }
+        },
+        "Annotations": {
+            "type": "object",
+            "properties": {
+                "decision_quality": {
+                    "description": "Quality score (format varies)"
+                },
+                "alternative_lines": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                },
+                "key_moment": {
+                    "type": "boolean"
+                },
+                "teaching_notes": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}
