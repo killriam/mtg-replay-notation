@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://github.com/Killriam/mtg-replay-notation/schema/replay-schema.json",
     "title": "MTG Replay Notation",
-    "description": "Schema for MTG Replay & Learning Notation v1.1.0",
+    "description": "Schema for MTG Replay & Learning Notation v1.2.0",
     "type": "object",
     "required": ["format", "version", "meta", "seed", "card_index", "initial_state", "log_l1"],
     "properties": {
@@ -22,6 +22,10 @@
         "seed": {
             "type": "integer",
             "description": "Random seed for deterministic replay"
+        },
+        "game_start": {
+            "$ref": "#/definitions/GameStart",
+            "description": "Pre-game decisions (toss, mulligans)"
         },
         "card_index": {
             "type": "object",
@@ -113,6 +117,60 @@
                     "type": "string",
                     "pattern": "^[a-f0-9]{16}$",
                     "description": "SHA-256 based deck identifier (16 hex chars)"
+                }
+            }
+        },
+        "GameStart": {
+            "type": "object",
+            "properties": {
+                "toss_winner": {
+                    "type": "string",
+                    "description": "Player who won the die roll/coin toss"
+                },
+                "play_draw_choice": {
+                    "type": "string",
+                    "enum": ["play", "draw"],
+                    "description": "Choice made by toss winner"
+                },
+                "starting_player": {
+                    "type": "string",
+                    "description": "Player who takes the first turn"
+                },
+                "mulligans": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/MulliganSummary"
+                    },
+                    "description": "Mulligan decisions per player"
+                }
+            }
+        },
+        "MulliganSummary": {
+            "type": "object",
+            "required": ["player", "mulligans_taken", "final_hand_size"],
+            "properties": {
+                "player": {
+                    "type": "string",
+                    "description": "Player ID"
+                },
+                "starting_hand_size": {
+                    "type": "integer",
+                    "description": "Initial hand size (usually 7)"
+                },
+                "mulligans_taken": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of times player mulliganed"
+                },
+                "final_hand_size": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Cards in hand after all mulligans"
+                },
+                "cards_to_bottom": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Cards put on bottom (London mulligan)"
                 }
             }
         },

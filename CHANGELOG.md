@@ -5,6 +5,23 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-08
+
+### Added
+- **Game Start Section**
+  - `toss_winner` — Player who won the die roll/coin toss
+  - `play_draw_choice` — Whether toss winner chose to play or draw
+  - `starting_player` — Player who takes the first turn
+  - `mulligans` — Array with mulligan summary per player
+
+- **Enhanced MULLIGAN Event**
+  - `decision` — "keep" or "mulligan"
+  - `hand_size_before` / `hand_size_after` — Hand sizes
+  - `mulligan_count` — Number of mulligans taken
+  - `cards_seen` — Card IDs in hand when decision made (optional)
+  - `cards_to_bottom` — Cards put to bottom (London mulligan)
+  - `cards_to_bottom_names` — Human-readable names
+
 ## [1.1.0] - 2026-02-08
 
 ### Added

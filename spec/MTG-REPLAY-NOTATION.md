@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.1.0
+## Format Specification v1.2.0
 
 **Status:** Stable  
 **Published:** February 2026  
@@ -9,6 +9,7 @@
 **Version History:**
 - **1.0.0** (December 2025): Initial specification
 - **1.1.0** (February 2026): Added `win_condition`, `conceded`, `deck_name`, `deck_hash` algorithm, `RESOURCES` event, `card_name` in events
+- **1.2.0** (February 2026): Added `game_start` section (toss winner, starting player, play/draw choice), enhanced `MULLIGAN` event with full details
 
 ---
 
@@ -30,11 +31,14 @@ A replay file contains:
 ```json
 {
     "format": "mtg-replay",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "meta": {
         /* Game metadata */
     },
     "seed": 1234567890,
+    "game_start": {
+        /* Toss/mulligan info */
+    },
     "card_index": {
         /* Card definitions */
     },
@@ -203,6 +207,53 @@ The `deck_hash` provides a stable identifier for a deck based solely on its card
 | `alternate_win` | Card effect (e.g., Laboratory Maniac, Thassa's Oracle) |
 | `draw` | Game ended in a draw |
 
+### 4.4 Game Start Information
+
+The `game_start` section captures pre-game decisions:
+
+```json
+{
+    "game_start": {
+        "toss_winner": "P1",
+        "play_draw_choice": "play",
+        "starting_player": "P1",
+        "mulligans": [
+            {
+                "player": "P1",
+                "starting_hand_size": 7,
+                "mulligans_taken": 1,
+                "final_hand_size": 6,
+                "cards_to_bottom": 1
+            },
+            {
+                "player": "P2",
+                "starting_hand_size": 7,
+                "mulligans_taken": 0,
+                "final_hand_size": 7,
+                "cards_to_bottom": 0
+            }
+        ]
+    }
+}
+```
+
+**Fields:**
+
+- `toss_winner` — Player who won the die roll/coin toss
+- `play_draw_choice` — Choice made: `"play"` (go first) or `"draw"` (go second)
+- `starting_player` — Player who takes the first turn
+- `mulligans` — Array of mulligan decisions per player
+
+**Mulligan Entry Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `player` | Player ID |
+| `starting_hand_size` | Initial hand size (usually 7) |
+| `mulligans_taken` | Number of times player mulliganed |
+| `final_hand_size` | Cards in hand after all mulligans |
+| `cards_to_bottom` | Cards put on bottom (London mulligan rule) |
+
 ---
 
 ## 5. Card Index
@@ -318,7 +369,7 @@ Events where a player makes a strategic choice:
 | `DECLARE_ATTACKERS` | Player declares attacking creatures        |
 | `DECLARE_BLOCKERS`  | Player declares blocking creatures         |
 | `PASS_PRIORITY`     | Player passes priority                     |
-| `MULLIGAN`          | Player decides to mulligan                 |
+| `MULLIGAN`          | Player mulligan decision (keep/mull)       |
 | `CHOOSE`            | Player makes a choice (mode, target, etc.) |
 
 #### System Events
@@ -343,6 +394,57 @@ Automatic game actions and state changes:
 ---
 
 ### 7.3 Event Data Schemas
+
+#### MULLIGAN Event
+
+```json
+{
+    "i": 1,
+    "t": "T0.PREGAME",
+    "a": "P1",
+    "type": "MULLIGAN",
+    "data": {
+        "decision": "mulligan",
+        "hand_size_before": 7,
+        "hand_size_after": 6,
+        "mulligan_count": 1,
+        "cards_seen": ["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+        "cards_to_bottom": ["c3"],
+        "cards_to_bottom_names": ["Swamp"]
+    }
+}
+```
+
+**Data Fields:**
+
+- `decision` — `"keep"` or `"mulligan"`
+- `hand_size_before` — Hand size before this decision
+- `hand_size_after` — Hand size after (same if keep, -1 if mulligan)
+- `mulligan_count` — How many mulligans taken so far (0 = first look)
+- `cards_seen` — Card IDs in hand when decision made (optional, for analysis)
+- `cards_to_bottom` — Card IDs put to bottom (London mulligan, only on keep)
+- `cards_to_bottom_names` — Human-readable names of cards put to bottom
+
+**Keep Decision Example:**
+
+```json
+{
+    "i": 2,
+    "t": "T0.PREGAME",
+    "a": "P1",
+    "type": "MULLIGAN",
+    "data": {
+        "decision": "keep",
+        "hand_size_before": 6,
+        "hand_size_after": 6,
+        "mulligan_count": 1,
+        "cards_to_bottom": ["c8"],
+        "cards_to_bottom_names": ["Forest"]
+    }
+}
+```
+
+---
 
 #### CAST Event
 
