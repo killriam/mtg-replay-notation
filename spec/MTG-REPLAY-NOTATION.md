@@ -10,6 +10,7 @@
 - **1.0.0** (December 2025): Initial specification
 - **1.1.0** (February 2026): Added `win_condition`, `conceded`, `deck_name`, `deck_hash` algorithm, `RESOURCES` event, `card_name` in events
 - **1.2.0** (February 2026): Added `game_start` section (toss winner, starting player, play/draw choice), enhanced `MULLIGAN` event with full details
+- **1.2.1** (February 2026): Added `ACTIVE_PLAYER_CHANGE` event for turn transitions
 
 ---
 
@@ -283,6 +284,49 @@ The `card_index` maps card names to their definitions:
 - `type` — Full type line
 - `oracle_id` — (Optional) Scryfall Oracle ID
 
+### 5.1 How Card Index Lookup Works
+
+The replay format uses a **two-level identification system** to keep events compact while enabling full card information lookup:
+
+1. **Card IDs** (`c1`, `c5`, `c42`, etc.) — Unique identifiers for each physical card instance in the game
+2. **Card Index** — A lookup table mapping card names to their definitions
+
+**Linking Cards to the Index:**
+
+Each card object in the `objects` map contains a `card_ref` field that references a key in the `card_index`:
+
+```json
+{
+    "objects": {
+        "c5": {
+            "card_ref": "Grizzly Bears",
+            "controller": "P1",
+            "zone": "battlefield"
+        }
+    },
+    "card_index": {
+        "Grizzly Bears": {
+            "name": "Grizzly Bears",
+            "cost": "{1}{G}",
+            "type": "Creature — Bear"
+        }
+    }
+}
+```
+
+**Lookup Flow:**
+
+1. An event references a card ID: `"card": "c5"`
+2. Find `c5` in the `objects` map → `"card_ref": "Grizzly Bears"`
+3. Look up `"Grizzly Bears"` in `card_index` → full card definition
+
+**Why This Design?**
+
+- **Compact events** — Events only need short IDs (`c5`) instead of full card data
+- **Deduplication** — Cards appearing multiple times share one `card_index` entry
+- **Tracking** — Card IDs are immutable, so you can follow a specific card through zone changes
+- **Flexibility** — Events can optionally include `card_name` for human readability without duplicating full definitions
+
 ---
 
 ## 6. Initial State
@@ -387,6 +431,7 @@ Automatic game actions and state changes:
 | `COUNTERS`     | Counters are added/removed      |
 | `TAP`          | Permanent taps or untaps        |
 | `PHASE_CHANGE` | Game advances to new phase      |
+| `ACTIVE_PLAYER_CHANGE` | Active player changes (turn transition) |
 | `RESOURCES`    | Player resources at upkeep      |
 | `STATE_BASED`  | State-based action occurs       |
 | `RANDOM`       | Random event (shuffle, reveal)  |
@@ -683,6 +728,32 @@ Recorded at upkeep to track player resource state:
 - `player` — Player ID
 - `land_count` — Number of lands on battlefield
 - `available_mana` — Total available mana from untapped sources
+
+---
+
+#### ACTIVE_PLAYER_CHANGE Event
+
+Recorded when the active player changes, typically at the start of a new turn:
+
+```json
+{
+    "i": 100,
+    "t": "T5.UP",
+    "a": "SYS",
+    "type": "ACTIVE_PLAYER_CHANGE",
+    "data": {
+        "previous_player": "P1",
+        "new_player": "P2",
+        "turn_number": 5
+    }
+}
+```
+
+**Data Fields:**
+
+- `previous_player` — Player ID of the previous active player
+- `new_player` — Player ID of the new active player
+- `turn_number` — The turn number that is starting
 
 ---
 
