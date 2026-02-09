@@ -43,11 +43,18 @@ This paper proposes a unified, learning-oriented framework for representing, rep
     - [Formation Templates](#77-formation-templates)
     - [Formation Evaluation Integration](#78-formation-evaluation-integration)
     - [Example Formation Analysis](#79-example-formation-analysis)
-8. [Evaluation Before and After Decisions](#8-evaluation-before-and-after-decisions)
-9. [Applications](#9-applications)
-10. [Limitations and Future Work](#10-limitations-and-future-work)
-11. [Conclusion](#11-conclusion)
-12. [Appendix A: Notation Syntax and Semantics](#appendix-a-notation-syntax-and-semantics)
+8. [Learning Helper Statistics](#8-learning-helper-statistics)
+    - [Overview](#81-overview)
+    - [Land Drop Rating](#82-land-drop-rating)
+    - [Available Mana](#83-available-mana)
+    - [Cast Options in Hand](#84-cast-options-in-hand)
+    - [Mana Color Coverage](#85-mana-color-coverage)
+    - [Integration with Evaluation Framework](#86-integration-with-evaluation-framework)
+9. [Evaluation Before and After Decisions](#9-evaluation-before-and-after-decisions)
+10. [Applications](#10-applications)
+11. [Limitations and Future Work](#11-limitations-and-future-work)
+12. [Conclusion](#12-conclusion)
+13. [Appendix A: Notation Syntax and Semantics](#appendix-a-notation-syntax-and-semantics)
 
 ---
 
@@ -947,7 +954,205 @@ This value feeds into:
 
 ---
 
-## 8. Evaluation Before and After Decisions
+## 8. Learning Helper Statistics
+
+### 8.1 Overview
+
+Learning Helper Statistics are **per-turn, at-a-glance indicators** designed to help players quickly assess whether their game is developing healthily. Unlike the full evaluation dimensions in Section 6, these statistics are intentionally simple, require no card metadata database, and can be computed from the game log alone (or enriched with deck data when available).
+
+They answer four practical questions every turn:
+
+1. **Did I make my land drop?**
+2. **What mana do I have available?**
+3. **What can I cast from hand?**
+4. **How well does my mana base cover my deck's color needs?**
+
+### 8.2 Land Drop Rating
+
+**Purpose:** Immediately flag turns where the player missed a land drop (falling behind on curve) or made multiple land drops (acceleration).
+
+#### Rating Scale
+
+| Lands Played This Turn | Rating | Symbol | Interpretation |
+|------------------------|--------|--------|----------------|
+| 0 | **Bad** | 🔴 | Missed land drop — falling behind on mana curve |
+| 1 | **Good** | 🟢 | Normal development — on curve |
+| ≥ 2 | **Super** | 🌟 | Accelerated development — ahead on curve |
+
+#### Formula
+
+```
+LandDropRating(turn) =
+    if landsPlayed == 0: "bad"
+    if landsPlayed == 1: "good"
+    if landsPlayed >= 2: "super"
+```
+
+#### Context Enrichment
+
+When cumulative land count is available:
+
+```
+ExpectedLands(turn) = turn_number  (in early game, turns 1-4)
+LandDeficit = ExpectedLands - CumulativeLandsOnBattlefield
+```
+
+A running deficit compounds the severity of a missed drop.
+
+### 8.3 Available Mana
+
+**Purpose:** Show the player exactly what colors and total amount of mana they can produce this turn.
+
+#### Data Sources
+
+- **Mana-producing lands** on battlefield (from cumulative zone tracking)
+- **Mana dorks / rocks** on battlefield (if tagged via deck data)
+- **Mana produced events** from the log (`mana_tap` events with `manaProduced`)
+
+#### Representation
+
+Mana is displayed as a color-coded pool:
+
+```
+Available Mana: {W: 2, U: 1, B: 0, R: 0, G: 3, C: 1} = 7 total
+```
+
+Where WUBRG follows the standard MTG color ordering:
+- **W** = White (☀️)
+- **U** = Blue (💧)
+- **B** = Black (💀)
+- **R** = Red (🔥)
+- **G** = Green (🌿)
+- **C** = Colorless (◇)
+
+#### Estimation from Lands
+
+When exact mana data is unavailable, estimate from land names on battlefield:
+
+```
+EstimateManaFromLands(lands):
+    for each land in lands:
+        if land is basic or recognized dual/fetch/shock:
+            add known color(s)
+        else:
+            // Use deck card data if available for is_manaproducing + mana_producing_colors
+            add inferred color(s)
+    return color_pool
+```
+
+### 8.4 Cast Options in Hand
+
+**Purpose:** Show which spells in hand can actually be cast given current available mana.
+
+#### Prerequisites
+
+- Hand contents (from cumulative zone tracking)
+- Available mana pool (from Section 8.3)
+- Card mana costs (from deck card data: `extendedCardInfo.cardfaces[0].mana_cost`)
+
+#### Castability Check
+
+For each non-land card in hand:
+
+```
+CanCast(card, mana_pool):
+    cost = ParseManaCost(card.mana_cost)  // e.g., "{2}{W}{U}" → {generic: 2, W: 1, U: 1}
+
+    // 1. Check colored requirements
+    for each color C in cost.colored:
+        if mana_pool[C] < cost[C]: return false
+
+    // 2. Check total mana (generic can use any color)
+    remaining = total(mana_pool) - sum(cost.colored)
+    if remaining < cost.generic: return false
+
+    return true
+```
+
+#### Display
+
+Cards are split into two groups:
+
+| Group | Style | Meaning |
+|-------|-------|---------|
+| **Castable** | Green highlight, full opacity | Can be cast with current mana |
+| **Not Castable** | Red/grey, reduced opacity | Cannot be cast — shows what's missing |
+
+### 8.5 Mana Color Coverage
+
+**Purpose:** Assess how well the current mana base covers the deck's color requirements.
+
+Two sub-metrics are computed:
+
+#### 8.5.1 Commander Color Coverage
+
+For Commander format decks:
+
+```
+CommanderColors = deck.ColorIdentity  // e.g., ["W", "U", "B"]
+AvailableColors = colors present in mana pool with count ≥ 1
+
+Coverage_Commander = |AvailableColors ∩ CommanderColors| / |CommanderColors|
+```
+
+| Coverage | Rating | Meaning |
+|----------|--------|---------|
+| 100% | 🟢 Full | All commander colors accessible |
+| 50–99% | 🟡 Partial | Some colors missing — potential casting problems |
+| < 50% | 🔴 Poor | Major color screw — most spells uncastable |
+
+#### 8.5.2 Deck Spell Castability Percentage
+
+Independent of what's in hand — measures what **percentage of all spells in the deck** could theoretically be cast with current mana:
+
+```
+CastablePercentage(mana_pool, deck):
+    castable_count = 0
+    spell_count = 0
+
+    for each card in deck.MainCards:
+        if card is land: continue
+        spell_count++
+
+        cost = ParseManaCost(card.mana_cost)
+        // Only check color requirements (ignore generic/total mana)
+        // This measures COLOR FIXING, not mana quantity
+        color_satisfied = true
+        for each color C in cost.colored:
+            if C != "C" and mana_pool[C] < cost[C]:  // Ignore generic colorless
+                color_satisfied = false
+                break
+
+        if color_satisfied:
+            castable_count++
+
+    return castable_count / spell_count
+```
+
+> **Note:** This deliberately ignores colorless/generic mana requirements. A `{4}{W}{W}` spell counts as castable if `W ≥ 2`, regardless of total mana. This isolates **color fixing quality** from **mana quantity**.
+
+| Percentage | Rating | Meaning |
+|------------|--------|---------|
+| ≥ 90% | 🟢 Excellent | Mana base covers nearly all spells |
+| 70–89% | 🟡 Adequate | Some spells require colors not yet available |
+| < 70% | 🔴 Deficient | Significant portion of deck is color-locked |
+
+### 8.6 Integration with Evaluation Framework
+
+Learning Helper Statistics feed into the main evaluation dimensions as lightweight proxies:
+
+| Statistic | Feeds Into | Relationship |
+|-----------|-----------|--------------|
+| Land Drop Rating | Resources (6.1) | Direct component of MPP |
+| Available Mana | Resources (6.1), Flexibility (6.7) | Determines action capacity |
+| Cast Options | Flexibility (6.7) | Directly maps to option count |
+| Color Coverage | Resources (6.1) | Directly maps to Fix(you) |
+
+These statistics can be computed without any card metadata database, making them suitable for quick feedback even when full evaluation is unavailable.
+
+---
+
+## 9. Evaluation Before and After Decisions
 
 For each L2 Unit, the evaluation vector is computed **both before and after resolution**. The difference between these vectors represents the effect of the decision **independent of game outcome variance**.
 
@@ -959,7 +1164,7 @@ This delta-centric approach enables feedback such as:
 
 ---
 
-## 9. Applications
+## 10. Applications
 
 The framework enables multiple applications:
 
@@ -972,7 +1177,7 @@ The framework enables multiple applications:
 
 ---
 
-## 10. Limitations and Future Work
+## 11. Limitations and Future Work
 
 The proposed heuristics are approximations and require tuning per format.
 
@@ -985,7 +1190,7 @@ The proposed heuristics are approximations and require tuning per format.
 
 ---
 
-## 11. Conclusion
+## 12. Conclusion
 
 This paper presents a unified notation and evaluation framework for Magic: The Gathering that bridges rules-accurate replay and learning-oriented analysis. By separating full-detail logs from pedagogical abstractions and adopting a vector-based evaluation model, the framework provides a foundation for explainable analysis, coaching, and AI research in complex card games.
 
