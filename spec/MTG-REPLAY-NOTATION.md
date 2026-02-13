@@ -1235,16 +1235,280 @@ Some information is hidden during gameplay:
 
 ---
 
-## 16. Version History
+## 16. Learning Helper Statistics
+
+The replay format enables calculation of key performance indicators (KPIs) for analyzing player decision-making and game efficiency. These statistics help identify strengths, weaknesses, and learning opportunities.
+
+### 16.1 Card Efficiency Metrics
+
+**Card Draw/Turn Ratio**
+- **Definition:** Average number of cards drawn per turn
+- **Formula:** `(Total cards drawn from L1 DRAW events) / (Total turns played)`
+- **Calculation:** Count all DRAW events (excluding opening hands), divide by final turn number
+- **Interpretation:** Higher values indicate better card advantage generation
+- **Data Requirements:**
+  - ✅ **Available Now:** DRAW events from L1 log
+  - ✅ **Available Now:** Turn numbers from turn_start events
+  - ⚠️ **Context:** Baseline is 1 card/turn; ≥2.0 is excellent, <0.8 is poor
+- **Rating Scale:**
+  - ≥ 2.0: 🌟 Excellent (multiple extra cards/turn)
+  - 1.5–1.99: 🟢 Good (consistent extra cards)
+  - 0.8–1.49: 🟡 Normal
+  - < 0.8: 🔴 Poor (falling behind)
+
+**Most Played Cards Efficiency**
+- **Definition:** Ratio of cards cast vs. opportunities to cast them
+- **Formula:** `(Times card was cast) / (Times card was available to cast)`
+- **Calculation:** 
+  - Count CAST events for each card
+  - Count turns where card was in hand with sufficient mana
+  - Calculate ratio per card
+- **Interpretation:** Low ratios may indicate suboptimal card selection or missed opportunities
+- **Data Requirements:**
+  - ✅ **Available Now:** CAST events for each card from L1 log
+  - ✅ **Available Now:** Cumulative hand zone tracking from MOVE events
+  - ✅ **Requires Card DB:** Card mana costs (from `extendedCardInfo.cardfaces[0].mana_cost`)
+  - ⚠️ **Limitation:** Cannot determine summoning sickness for creatures yet
+  - ⚠️ **Limitation:** Cannot detect if instant-speed cards were deliberately held
+- **Rating Scale:**
+  - ≥ 0.8: 🟢 Excellent (played nearly every opportunity)
+  - 0.5–0.79: 🟡 Moderate (sometimes held for timing)
+  - 0.2–0.49: 🟠 Low (often not cast when available)
+  - < 0.2: 🔴 Very Low (consider cutting from deck)
+- **Special Cases:**
+  - Counterspells/Interaction: <0.5 is normal (held for threats)
+  - Win Conditions: Low efficiency acceptable if card wins when cast
+
+### 16.2 Mana Utilization Metrics
+
+**Land Drop Rating**
+- **Definition:** Whether player made their land drop this turn
+- **Formula:** `if lands_played == 0: "bad", if == 1: "good", if >= 2: "super"`
+- **Data Requirements:**
+  - ✅ **Available Now:** `lands_played_this_turn` counter from player state
+  - ⚠️ **Enhancement:** Could compare cumulative lands to `turn_number` to detect deficit
+- **Rating Scale:**
+  - 0 lands: 🔴 Bad (missed drop, falling behind)
+  - 1 land: 🟢 Good (on curve)
+  - ≥ 2 lands: 🌟 Super (accelerated, ahead on curve)
+
+**Available Mana**
+- **Definition:** Total mana pool by color available this turn
+- **Display:** `{W: 2, U: 1, B: 0, R: 0, G: 3, C: 1} = 7 total`
+- **Calculation:** 
+  - **Method 1 (Preferred):** Extract from `mana_pool` state or `mana_tap` events with `manaProduced`
+  - **Method 2 (Estimation):** Count lands on battlefield and estimate colors from names
+  - Add mana dorks/rocks if tagged in card database
+- **Data Requirements:**
+  - ✅ **Available Now:** Cumulative battlefield zone tracking
+  - ✅ **Requires Card DB:** `is_manaproducing` + `mana_producing_colors` fields
+  - ⚠️ **Limitation:** Estimation only works for recognized land names (basic, shock, fetch, dual)
+  - ❌ **Not Tracked Yet:** Actual `mana_tap` events with `manaProduced` values
+
+**Cast Options in Hand**
+- **Definition:** Which cards in hand can be cast with current mana
+- **Calculation:**
+  - Parse each card's mana cost (e.g., `{2}{W}{U}` → generic: 2, W: 1, U: 1)
+  - Check if colored requirements met: `mana_pool[color] >= cost[color]` for each color
+  Spell Velocity**
+- **Definition:** Mean number of spells cast per turn
+- **Formula:** `(Total CAST events for player) / (Total turns)`
+- **Calculation:** Count all CAST events where actor is the player, divide by turns
+- **Interpretation:** Higher values indicate faster, more aggressive gameplay
+- **Data Requirements:**
+  - ✅ **Available Now:** CAST events from L1 log
+  - ✅ **Available Now:** Turn count from turn_start events
+  - ⚠️ **Enhancement:** Compare to expected velocity based on deck average CMC
+- **Archetype Expectations:**
+  - ≥ 3.0: Storm, Combo, Spellslinger
+  - 2.0–2.99: Tempo, Prowess, Cantrip-heavy
+  - 1.0–1.99: Midrange, Typical Commander
+  - 0.5–0.99: Control (early game)
+  - < 0.5: Mana-screwed or extremely slow deck
+
+**Effective Turn to Boardstate Impact**
+- **Definition:** Turn where player establishes meaningful board presence
+- **Formula:** First turn where `BoardPresenceScore >= Threshold`
+- **Calculation:**
+  - `BoardPresenceScore = (creature power × 1.0) + (creature toughness × 0.3) + (planeswalker loyalty × 0.8) + (game-enders × 5.0)`
+  - Threshold varies by archetype (e.g., 6 for aggro, 10 for midrange)
+  - Identify first turn exceeding threshold
+- **Data Requirements:**
+  - ✅ **Available Now:** Cumulative battlefield tracking
+  - ✅ **Requires Card DB:** Creature power/toughness
+  - ✅ **Requires Card DB:** Planeswalker loyalty values
+  - ❌ **Not Available:** "Game-ending permanent" tagging
+  - ⚠️ **Limitation:** Cannot fully assess non-combat threats (combo pieces, engines)
+- **Rating by Archetype:**
+  - Aggro (threshold 6): Fast if turn ≤2, On Curve if turn 3, Slow if turn ≥4
+  - Tempo (threshold 8): Fast if turn ≤3, On Curve if turn 4, Slow if turn ≥5
+- **Data Requirements:**
+  - ✅ **Available Now:** `lands_played_this_turn` counter from player state
+  - ✅ **Available Now:** Hand contents from cumulative zone tracking
+  - ✅ **Requires Card DB:** Land type identification (though basic patterns can work)
+  - ⚠️ **Limitation:** Cannot detect deliberate holds (e.g., holding fetchland for shuffle)
+  - ⚠️ **Limitation:** Multiple land drop abilities (e.g., Azusa) not currently tracked
+  - Midrange (threshold 10): Fast if turn ≤4, On Curve if turn 5, Slow if turn ≥6
+  - Control (threshold 12): Fast if turn ≤5, On Curve if turn 6-7, Slow if turn ≥8
+
+**Critical Turn Number**
+- **Definition:** Turn where game outcome became effectively decided
+- **Formula:** `min(CriticalTurn_Life, CriticalTurn_Board, CriticalTurn_Concede)`
+- **Calculation Methods:**
+  - **Method 1 (Life Swing):** Turn with largest `|LifeTotal(you,t) - LifeTotal(you,t-1)| + |LifeTotal(opp,t) - LifeTotal(opp,t-1)|`
+  - **Method 2 (Board Dominance):** Turn with largest `|BoardPresenceScore(you,t) - BoardPresenceScore(opp,t)|` change
+  - **Method 3 (Game End):** Turn before concession or turn of win_condition event
+- **Data Requirements:**
+  - ✅ **Available Now:** Life total changes from DAMAGE events
+  - ✅ **Available Now:** Concession turn from `conceded` in meta
+  - ✅ **Available Now:** Win condition turn from `win_condition` event
+  - ⚠️ **Partial:** Board dominance calculation (see Effective Turn requirements)
+- **Usage:** Focal point for deep analysis — what decisions led here? Were there alternatives 2-3 turns earlier?
+  - ✅ **Requires Card DB:** Flash keyword detection
+  - ⚠️ **Limitation:** Cannot detect situational reasons to hold mana (e.g., waiting for specific threat)
+  - ⚠️ **Context Dependency:** Tap-out decks (aggro/ramp) naturally have higher waste
+- **Rating Scale:**
+  - 0–1 per turn: 🟢 Efficient
+  - 2–3 per turn: 🟡 Moderate waste
+  - 4–5 per turn: 🟠 High waste
+  - >5 per turn: 🔴 Excessive waste
+
+**Mana Color Coverage**
+
+*A. Commander Color Coverage*
+- **Definition:** Percentage of commander colors currently available
+- **Formula:** `|AvailableColors ∩ CommanderColors| / |CommanderColors|`
+- **Data Requirements:**
+  - ✅ **Requires Decklist:** Commander color identity
+  - ✅ **Available Now:** Available colors from mana pool
+- **Rating Scale:**
+  - 100%: 🟢 Full (all colors accessible)
+  - 50–99%: 🟡 Partial (some colors missing)
+  - <50%: 🔴 Poor (major color screw)
+
+*B. Deck Spell Castability Percentage*
+- **Definition:** What % of deck spells have color requirements met (ignoring generic mana)
+- **Formula:** Count spells where colored mana requirements ≤ available colored mana, divide by total spells
+- **Calculation:**
+  - For each non-land card in deck
+  - Check only colored mana (ignore generic/colorless)
+  - E.g., `{4}{W}{W}` is castable if W ≥ 2, regardless of total mana
+- **Data Requirements:**
+  - ✅ **Requires Decklist:** All cards with counts
+  - ✅ **Requires Card DB:** Mana cost for each card to extract colored requirements
+  - ⚠️ **Note:** This measures COLOR FIXING quality, not mana quantity
+- **Rating Scale:**
+  - ≥90%: 🟢 Excellent (mana base covers almost everything)
+  - 70–89%: 🟡 Adequate (some spells color-locked)
+  - <70%: 🔴 Deficient (significant color problems)
+
+### 16.3 Game Tempo Metrics
+
+**AverageData Requirements Summary
+
+**Computation Requirements Table:**
+
+| Statistic | Log Events Only | Card DB Required | Decklist Required | Current Status |
+|-----------|----------------|------------------|-------------------|----------------|
+| Land Drop Rating | ✅ Yes | No | No | ✅ Fully Computable |
+| Card Draw Efficiency | ✅ Yes | No | No | ✅ Fully Computable |
+| Spell Velocity | ✅ Yes | No | No | ✅ Fully Computable |
+| Critical Turn Number | ✅ Yes | No | No | ✅ Fully Computable |
+| Missed Land Drops | ✅ Yes | ⚠️ Helpful | No | ✅ Basic Version Works |
+| Available Mana | ⚠️ Partial | ✅ Yes | No | ⚠️ Estimation Only |
+| Cast Options in Hand | No | ✅ Yes | No | ✅ With Card DB |
+| Unused Mana at Opponent Turn | ⚠️ Partial | ✅ Yes | No | ⚠️ With Card DB + Estimates |
+| Commander Color Coverage | ⚠️ Partial | No | ✅ Yes | ⚠️ Requires Decklist |
+| Deck Spell Castability % | No | ✅ Yes | ✅ Yes | ⚠️ Requires Both |
+| Most Played Cards Efficiency | ✅ Yes | ✅ Yes | No | ⚠️ Requires Card DB |
+| Effective Turn to Boardstate Impact | ⚠️ Partial | ✅ Yes | No | ❌ Partial (P/T only) |
+
+**Data Sources:**
+- **L1 Event Log:** CAST, DRAW, MOVE, DAMAGE, turn_start events (authoritative)
+- **Player State:** `mana_pool`, `lands_played_this_turn`, `life_total` counters
+- **Card Database:** Mana costs, power/toughness, types, keywords (Flash), mana production
+- **Decklist:** Commander color identity, all cards with counts
+- **L2 Views:** Decision context and turn summaries
+
+**Current Limitations:**
+1. ❌ **Mana Tap Events:** `mana_tap` events with `manaProduced` values not consistently logged
+2. ❌ **Permanent Tags:** Game-ending permanents, combo pieces not tagged
+3. ❌ **Ability Tracking:** Flash, multiple land drops, alternative costs not fully tracked
+4. ❌ **Summoning Sickness:** Cannot determine if creatures could attack/tap abilities
+5. ⚠️ **Hand Visibility:** Relies on cumulative tracking (may have gaps if player hides information)
+
+### 16.6 Implementation Guidelines
+
+**Best Practices:**
+- Calculate statistics for both players separately
+- Compare against deck archetype averages
+- Consider game format and matchup context
+- Correlate with game outcome (win/loss)
+- Highlight outlier games for detailed review
+- **Graceful Degradation:** Show simplified statistics when card DB unavailable
+
+**Examples of Graceful Degradation:**
+- **Without Card DB:**
+  - Show land drop rating, card draw rate, spell velocity, critical turn
+  - Estimate available mana from basic land names only
+  - Cannot show cast options or color coverage
+- **Without Decklist:**
+  - Cannot show commander color coverage or deck castability %
+  - All other statistics still available if card DB present
+
+**Example Use Cases:**
+- Identify consistent mana problems → mulligan strategy adjustment
+- Low spell velocity → deck curve optimization
+- High unused mana → add more instant-speed interaction
+- Low card efficiency → deck building: replace underperforming cards
+- Critical turn at turn 3 → analyze turns 1-2 for better play
+- **Interpretation:** Helps identify key decision points for analysis
+
+### 16.4 Strategic Efficiency Metrics
+
+**Missed Land Drops**
+- **Definition:** Number of turns without playing a land when lands were available
+- **Formula:** `Count of turns (land in hand AND lands_played_this_turn == 0)`
+- **Calculation:**
+  - Each turn, check player hand for land cards
+  - Verify lands_played_this_turn counter
+  - Count missed opportunities
+- **Interpretation:** Indicates unforced play errors or mana flood management decisions
+
+### 16.5 Implementation Guidelines
+
+**Data Sources:**
+- Extract from L1 event log for authoritative data
+- Use L2 views for decision context
+- Reference card_index for card types and costs
+- Access player state for mana_pool and counters
+
+**Best Practices:**
+- Calculate statistics for both players separately
+- Compare against deck archetype averages
+- Consider game format and matchup context
+- Correlate with game outcome (win/loss)
+- Highlight outlier games for detailed review
+
+**Example Use Cases:**
+- Identify consistent mana problems → mulligan strategy adjustment
+- Low spell velocity → deck curve optimization
+- High unused mana → add more instant-speed interaction
+- Low card efficiency → deck building: replace underperforming cards
+
+---
+
+## 17. Version History
 
 | Version | Date       | Changes               |
 | ------- | ---------- | --------------------- |
 | 1.0.0   | 2025-12-20 | Initial specification |
 | 1.1.0   | 2026-02-08 | Added `win_condition`, `conceded`, `deck_name` in meta; `deck_hash` algorithm; `RESOURCES` event; `card_name` in CAST, MOVE, PUT_ON_STACK, DAMAGE events |
+| 1.2.0   | 2026-02-12 | Added Learning Helper Statistics section with KPIs for game analysis |
 
 ---
 
-## 17. Legal
+## 18. Legal
 
 This format is designed for Magic: The Gathering gameplay recording and analysis. Magic: The Gathering is trademark of Wizards of the Coast LLC.
 

@@ -50,11 +50,20 @@ This paper proposes a unified, learning-oriented framework for representing, rep
     - [Cast Options in Hand](#84-cast-options-in-hand)
     - [Mana Color Coverage](#85-mana-color-coverage)
     - [Integration with Evaluation Framework](#86-integration-with-evaluation-framework)
-9. [Evaluation Before and After Decisions](#9-evaluation-before-and-after-decisions)
-10. [Applications](#10-applications)
-11. [Limitations and Future Work](#11-limitations-and-future-work)
-12. [Conclusion](#12-conclusion)
-13. [Appendix A: Notation Syntax and Semantics](#appendix-a-notation-syntax-and-semantics)
+9. [Blunder Detection](#9-blunder-detection)
+    - [Overview](#91-overview)
+    - [Attacking into Unfavorable Blocks](#92-attacking-into-unfavorable-blocks)
+    - [Forgetting Activated Abilities](#93-forgetting-activated-abilities)
+    - [Incorrect Spell Sequencing](#94-incorrect-spell-sequencing)
+    - [Missing Lethal](#95-missing-lethal)
+    - [Missed Triggers](#96-missed-triggers)
+    - [Inefficient Mana Tapping](#97-inefficient-mana-tapping)
+    - [Blunder Detection Integration](#98-blunder-detection-integration)
+10. [Evaluation Before and After Decisions](#10-evaluation-before-and-after-decisions)
+11. [Applications](#11-applications)
+12. [Limitations and Future Work](#12-limitations-and-future-work)
+13. [Conclusion](#13-conclusion)
+14. [Appendix A: Notation Syntax and Semantics](#appendix-a-notation-syntax-and-semantics)
 
 ---
 
@@ -1137,7 +1146,233 @@ CastablePercentage(mana_pool, deck):
 | 70–89% | 🟡 Adequate | Some spells require colors not yet available |
 | < 70% | 🔴 Deficient | Significant portion of deck is color-locked |
 
-### 8.6 Integration with Evaluation Framework
+### 8.6 Card Draw Efficiency
+
+**Purpose:** Track card advantage generation rate to identify when a player is drawing more/fewer cards than baseline.
+
+#### Formula
+
+```
+CardDrawRate(player, turn_range) =
+    (Total DRAW events for player in range) / (Number of turns in range)
+
+CardDrawRatio(player) = CardDrawRate(player) / 1.0  // Baseline: 1 card per turn
+```
+
+#### Interpretation
+
+| Ratio | Rating | Meaning |
+|-------|--------|----------|
+| ≥ 2.0 | 🌟 Excellent | Drawing multiple extra cards per turn |
+| 1.5–1.99 | 🟢 Good | Drawing extra cards consistently |
+| 0.8–1.49 | 🟡 Normal | Standard draw rate |
+| < 0.8 | 🔴 Poor | Falling behind on cards |
+
+### 8.7 Spell Velocity
+
+**Purpose:** Measure how many spells a player is casting per turn to assess game tempo.
+
+#### Formula
+
+```
+SpellVelocity(player, turn_range) =
+    (Total CAST events for player in range) / (Number of turns in range)
+```
+
+#### Interpretation
+
+| Velocity | Deck Archetype Expectation |
+|----------|---------------------------|
+| ≥ 3.0 | Storm, Combo, Spellslinger |
+| 2.0–2.99 | Tempo, Prowess, Cantrip-heavy |
+| 1.0–1.99 | Midrange, Typical Commander |
+| 0.5–0.99 | Control (early game) |
+| < 0.5 | Mana-screwed or extremely slow deck |
+
+#### Context Enrichment
+
+Compare to deck's expected velocity based on average CMC:
+
+```
+ExpectedVelocity ≈ AvailableMana / DeckAverageCMC
+VelocityDeficit = ActualVelocity - ExpectedVelocity
+```
+
+Negative deficit suggests inefficient turns or holding up mana unnecessarily.
+
+### 8.8 Most Played Cards Analysis
+
+**Purpose:** Identify which cards are being cast frequently vs. sitting in hand, revealing deck construction issues or play pattern problems.
+
+#### Formula
+
+```
+For each unique card in deck:
+    OpportunitiesAvailable = Count of turns where:
+        - Card was in hand
+        - Mana available >= card's mana cost
+        - No summoning sickness restrictions (for creatures)
+
+    TimesCast = Count of CAST events for this card
+
+    PlayEfficiency(card) = TimesCast / max(1, OpportunitiesAvailable)
+```
+
+#### Interpretation
+
+| Efficiency | Rating | Meaning |
+|-----------|--------|----------|
+| ≥ 0.8 | 🟢 Excellent | Card is played nearly every time it's available |
+| 0.5–0.79 | 🟡 Moderate | Sometimes held for timing reasons |
+| 0.2–0.49 | 🟠 Low | Often not cast when available |
+| < 0.2 | 🔴 Very Low | Rarely cast despite opportunities — consider cutting |
+
+#### Special Cases
+
+- **Counterspells / Interaction:** Efficiency < 0.5 is normal (held for threats)
+- **Win Conditions:** Low efficiency acceptable if card wins when cast
+- **Situational Cards:** Normalize by opponent deck type
+
+#### Aggregate Metrics
+
+```
+DeckPlayEfficiency = Average PlayEfficiency across all non-land cards
+DeadCards = Cards with PlayEfficiency < 0.1 and OpportunitiesAvailable > 3
+```
+
+### 8.9 Unused Mana at End of Opponent's Turn
+
+**Purpose:** Identify wasted mana that could have been spent on instant-speed interaction, revealing missed opportunities.
+
+#### Formula
+
+```
+For each opponent's turn:
+    ManaAtEndStep = Mana pool size before active player changes
+    InstantSpeedOptions = Cards in hand with "Instant" type or Flash
+
+    CheapestInteractionCost = min(mana_cost(card) for card in InstantSpeedOptions)
+
+    // If no interaction available, unused mana is not "wasted"
+    if InstantSpeedOptions.empty:
+        WastedMana = 0
+    else:
+        WastedMana = max(0, ManaAtEndStep - CheapestInteractionCost)
+
+TotalWastedMana = sum(WastedMana per opponent turn)
+WastedManaPerTurn = TotalWastedMana / OpponentTurnCount
+```
+
+#### Interpretation
+
+| Wasted/Turn | Rating | Meaning |
+|-------------|--------|----------|
+| 0–1 | 🟢 Efficient | Using mana well, representing threats |
+| 2–3 | 🟡 Moderate | Some missed flashing/interaction |
+| 4–5 | 🟠 High | Significant unused resources |
+| > 5 | 🔴 Excessive | Major efficiency problems, likely incorrect threat assessment |
+
+#### Context Factors
+
+- **Deck Archetype:** Tap-out strategies (e.g., aggro, ramp) naturally have higher waste
+- **Game Phase:** Early game waste more concerning than late game (flood)
+- **Threat Assessment:** If opponent's turn was uneventful, holding mana is correct
+
+### 8.10 Effective Turn to Boardstate Impact
+
+**Purpose:** Identify the turn where the player establishes meaningful board presence, measuring deck speed.
+
+#### Formula
+
+```
+For each turn t:
+    BoardPresenceScore(t) = sum of:
+        - Creature power on battlefield × 1.0
+        - Creature toughness on battlefield × 0.3
+        - Planeswalker loyalty × 0.8
+        - Game-ending permanents × 5.0 (tagged)
+
+    Threshold = format_dependent_threshold  // e.g., 6 for aggro, 10 for midrange
+
+    EffectiveTurn = first turn t where BoardPresenceScore(t) >= Threshold
+```
+
+#### Thresholds by Archetype
+
+| Archetype | Threshold | Expected Turn |
+|-----------|-----------|---------------|
+| Aggro | 6 | Turn 2–3 |
+| Tempo | 8 | Turn 3–4 |
+| Midrange | 10 | Turn 4–5 |
+| Control | 12 | Turn 5–7 |
+| Combo | N/A | Measure combo assembly instead |
+
+#### Interpretation
+
+```
+SpeedRating =
+    if EffectiveTurn <= ExpectedTurn - 1: "Fast" (🟢)
+    if EffectiveTurn == ExpectedTurn: "On Curve" (🟡)
+    if EffectiveTurn >= ExpectedTurn + 1: "Slow" (🔴)
+```
+
+### 8.11 Critical Turn Number
+
+**Purpose:** Identify the turn where the game's outcome became effectively decided, enabling focused analysis.
+
+#### Detection Methods
+
+**Method 1: Life Total Swing**
+
+```
+For each turn t:
+    LifeSwing(t) = |LifeTotal(you, t) - LifeTotal(you, t-1)|
+                 + |LifeTotal(opp, t) - LifeTotal(opp, t-1)|
+
+CriticalTurn_Life = turn with max(LifeSwing)
+```
+
+**Method 2: Board State Dominance**
+
+```
+For each turn t:
+    Dominance(t) = BoardPresenceScore(you, t) - BoardPresenceScore(opp, t)
+    DominanceChange(t) = Dominance(t) - Dominance(t-1)
+
+CriticalTurn_Board = turn with max(|DominanceChange|)
+```
+
+**Method 3: Game-Ending Event**
+
+```
+if game ended by concession:
+    CriticalTurn_Concede = last_turn - 1  // Turn before concede
+
+if game ended by win_condition event:
+    CriticalTurn_Win = turn of win_condition event
+```
+
+#### Combined Formula
+
+```
+CriticalTurn = min(
+    CriticalTurn_Life,
+    CriticalTurn_Board,
+    CriticalTurn_Concede,
+    CriticalTurn_Win
+)
+```
+
+#### Usage
+
+Once identified, the critical turn becomes the focal point for deep analysis:
+
+- What decisions led to this turn?
+- Were there alternative plays 2-3 turns earlier?
+- What information was available to predict this outcome?
+- Could opponent have prevented this?
+
+### 8.12 Integration with Evaluation Framework
 
 Learning Helper Statistics feed into the main evaluation dimensions as lightweight proxies:
 
@@ -1147,12 +1382,557 @@ Learning Helper Statistics feed into the main evaluation dimensions as lightweig
 | Available Mana | Resources (6.1), Flexibility (6.7) | Determines action capacity |
 | Cast Options | Flexibility (6.7) | Directly maps to option count |
 | Color Coverage | Resources (6.1) | Directly maps to Fix(you) |
+| Card Draw Efficiency | Card Advantage (6.4) | Measures card generation rate |
+| Spell Velocity | Tempo (6.3) | Indicates time efficiency and initiative |
+| Most Played Cards | Synergy (6.9) | Identifies underperforming cards |
+| Unused Mana | Tempo (6.3), Flexibility (6.7) | Measures mana efficiency |
+| Effective Turn to Boardstate Impact | Tempo (6.3), Board Presence (6.2) | Deck speed metric |
+| Critical Turn Number | N/A | Meta-statistic for analysis focus |
 
-These statistics can be computed without any card metadata database, making them suitable for quick feedback even when full evaluation is unavailable.
+#### Computation Requirements
+
+| Statistic | Requires Card DB | Computed From |
+|-----------|------------------|---------------|
+| Land Drop Rating | No | Log events only |
+| Available Mana | No | Log events + basic land recognition |
+| Cast Options | Yes | Requires mana costs |
+| Color Coverage | Yes | Requires color identity + mana costs |
+| Card Draw Efficiency | No | Count DRAW events |
+| Spell Velocity | No | Count CAST events |
+| Most Played Cards | Yes | Requires mana costs |
+| Unused Mana | Yes | Requires instant-speed card identification |
+| Effective Turn to Boardstate Impact | Partial | Enhanced with permanent tags |
+| Critical Turn Number | No | Log events + state tracking |
+
+These statistics can be computed with varying levels of detail depending on available metadata, making them suitable for quick feedback even when full evaluation is unavailable.
 
 ---
 
-## 9. Evaluation Before and After Decisions
+## 9. Blunder Detection
+
+### 9.1 Overview
+
+Blunders are **clearcut, objectively incorrect plays** that result in measurable loss of advantage without compensating benefit. Unlike strategic disagreements (where reasonable players might differ), blunders represent unforced errors that can be detected algorithmically by analyzing game state transitions.
+
+Blunder detection serves multiple purposes:
+
+- **Immediate Feedback:** Flag critical mistakes for post-game review
+- **Learning Prioritization:** Focus improvement efforts on high-impact errors
+- **Skill Assessment:** Quantify decision quality over multiple games
+- **Coaching Tools:** Generate specific, actionable advice
+
+**Detection Philosophy:**
+
+- **Conservative:** Only flag clear mistakes with >90% certainty
+- **Objective:** Based on game state analysis, not outcome
+- **Actionable:** Each detection includes explanation and alternative
+- **Format-Aware:** Thresholds adjusted for format complexity
+
+### 9.2 Attacking into Unfavorable Blocks
+
+**Definition:** Declaring an attack where favorable blocks exist that result in net material loss without strategic justification.
+
+#### Detection Algorithm
+
+```
+function detectUnfavorableAttack(attackers, blockers, gameState):
+    // Simulate all possible blocking scenarios
+    possibleBlocks = generateBlockingOptions(attackers, blockers)
+    
+    for each blockScenario in possibleBlocks:
+        damageResult = simulateCombatDamage(attackers, blockScenario)
+        
+        // Calculate material exchange
+        attackerLosses = sum(attacker.value where attacker.dies)
+        blockerLosses = sum(blocker.value where blocker.dies)
+        
+        netLoss = attackerLosses - blockerLosses
+        
+        // Check if block is favorable for defender
+        if netLoss > 2.0:  // Losing >2 points of material
+            // Check for strategic justification
+            justifications = checkAttackJustifications(gameState, attackers, blockScenario)
+            
+            if justifications.empty:
+                return {
+                    type: "unfavorable_attack",
+                    severity: "high" if netLoss > 4.0 else "medium",
+                    attackers: attackers,
+                    expectedBlock: blockScenario,
+                    netLoss: netLoss,
+                    explanation: formatExplanation(attackers, blockScenario, netLoss)
+                }
+    
+    return null
+```
+
+#### Strategic Justifications
+
+Attacks with material loss may be justified by:
+
+| Justification | Detection Method | Example |
+|---------------|------------------|----------|
+| **Race Situation** | `ClockYou < ClockOpp - 1` | All-in aggro in racing situation |
+| **Forced Block** | Opponent must block or die | Alpha strike with lethal if unblocked |
+| **Trigger Value** | Attack triggers worth > material loss | Attacking with tokens for Purphoros triggers |
+| **Evasive Damage** | Unblocked damage > attacker value | Trading 2/2 to push 3 unblocked damage |
+| **Removal Bait** | Force opponent to use removal suboptimally | Attack to bait removal before playing better threat |
+
+#### Example Detection
+
+**Board State:**
+- Attacker: 2/2 creature, 3/3 creature
+- Blocker: 4/4 creature (can block both)
+
+**Attack Declaration:** Attack with both
+
+**Simulation:**
+```
+block_scenario_1: 4/4 blocks 2/2
+  Result: 2/2 dies, 4/4 survives (4 damage marked)
+  Net loss: 2.5 (attacker loses 2/2)
+
+block_scenario_2: 4/4 blocks 3/3
+  Result: Both die
+  Net loss: -1.0 (favorable trade)
+
+Opponent chooses scenario_1 → Blunder detected
+```
+
+**Blunder Report:**
+```
+⚠️ Unfavorable Attack Detected
+Severity: Medium
+Attackers: [2/2 Creature, 3/3 Creature]
+Expected Block: 4/4 blocks 2/2
+Net Loss: 2.5 material value
+
+Alternative: Attack with only 3/3 to threaten favorable trade
+```
+
+### 9.3 Forgetting Activated Abilities
+
+**Definition:** Failing to activate a clearly beneficial ability when mana and activation conditions are available.
+
+#### Detection Algorithm
+
+```
+function detectForgottenAbility(gameState, turn):
+    // At end of each phase, check for unused activated abilities
+    for each permanent in gameState.battlefield[activePlayer]:
+        for each ability in permanent.activated_abilities:
+            if isAvailable(ability, gameState) and isBeneficial(ability, gameState):
+                // Check if ability was used this phase
+                if not wasActivatedThisPhase(ability, turn.events):
+                    // Calculate opportunity cost
+                    benefit = estimateAbilityBenefit(ability, gameState)
+                    
+                    if benefit > 1.5:  // Significant missed value
+                        return {
+                            type: "forgotten_ability",
+                            severity: "high" if benefit > 3.0 else "medium",
+                            permanent: permanent,
+                            ability: ability,
+                            estimatedBenefit: benefit,
+                            phase: turn.phase
+                        }
+    return null
+```
+
+#### Beneficial Ability Heuristics
+
+| Ability Type | Beneficial When | Example |
+|--------------|-----------------|----------|
+| **Card Draw** | Always (if mana available) | "Pay 2: Draw a card" |
+| **Removal** | Opponent has target > 2 value | "Tap: Destroy target creature" |
+| **Pump** | Before combat damage | "G: +1/+1 until end of turn" |
+| **Untap** | Has valuable tap ability | "Pay 1: Untap this" |
+| **Mana Production** | Before casting spells | "Tap: Add {G}" |
+| **Token Generation** | Not summoning sick tokens | "3, Tap: Create 1/1 token" |
+
+#### False Positive Prevention
+
+**Don't flag if:**
+- Ability requires tapping and creature has summon sickness
+- Saving mana for instant-speed interaction
+- Strategic reasons to not reveal information
+- Ability is situational and situation doesn't apply
+
+### 9.4 Incorrect Spell Sequencing
+
+**Definition:** Casting spells in an order that restricts options or reduces value compared to an alternative sequence.
+
+#### Detection Algorithm
+
+```
+function detectSequencingError(spellsThisTurn, gameState):
+    if spellsThisTurn.length < 2:
+        return null
+    
+    // Generate alternative orderings
+    alternativeOrders = permutations(spellsThisTurn)
+    
+    actualMana = trackManaAfterSequence(spellsThisTurn, gameState)
+    
+    for each altOrder in alternativeOrders:
+        altMana = trackManaAfterSequence(altOrder, gameState)
+        
+        // Check if alternative enables more spells
+        additionalSpells = getEnabledSpells(altMana, gameState.hand)
+        
+        if additionalSpells.length > 0:
+            return {
+                type: "sequencing_error",
+                severity: "high",
+                actualOrder: spellsThisTurn,
+                betterOrder: altOrder,
+                missedOpportunities: additionalSpells,
+                explanation: formatSequencingExplanation(spellsThisTurn, altOrder)
+            }
+    
+    return null
+```
+
+#### Common Sequencing Mistakes
+
+| Mistake | Correct Sequence | Explanation |
+|---------|------------------|-------------|
+| **Land before ramp spell** | Ramp spell → Land | Maximizes mana available |
+| **Sorcery before draw spell** | Draw → Sorcery | Might draw better spell |
+| **Generic before colored mana** | Colored sources first | Preserves fixing options |
+| **Permanent before pump spell** | Pump → Permanent | Information hiding |
+
+#### Example Detection
+
+**Actual Sequence:**
+1. Play Mountain (3R available)
+2. Cast Lightning Bolt (cost R) → 2R remaining
+3. Cannot cast 3G spell in hand
+
+**Better Sequence:**
+1. Cast Lightning Bolt (cost R from existing mana) → 2R remaining
+2. Play Forest → 2RG available
+3. Can now cast 3G spell
+
+**Blunder Report:**
+```
+⚠️ Spell Sequencing Error
+Severity: High
+You cast Lightning Bolt after playing your land.
+Better: Cast Lightning Bolt first, then play land.
+Result: Could have cast Cultivate (3G) afterwards.
+```
+
+### 9.5 Missing Lethal
+
+**Definition:** Having sufficient resources to win the game but not taking the winning line.
+
+#### Detection Algorithm
+
+```
+function detectMissedLethal(gameState, turn):
+    opponent = gameState.opponent
+    you = gameState.activePlayer
+    
+    // Calculate all available damage sources
+    combatDamage = calculateMaxCombatDamage(you, opponent)
+    directDamage = calculateAvailableDirectDamage(you.hand, you.battlefield, you.manaPool)
+    alternativeDamage = calculateAlternativeWins(you, gameState)  // Mill, poison, etc.
+    
+    totalAvailableDamage = combatDamage + directDamage + alternativeDamage
+    
+    if totalAvailableDamage >= opponent.life:
+        // Check if player executed lethal
+        actualDamage = calculateActualDamage(turn.events, opponent)
+        
+        if actualDamage < opponent.life:
+            return {
+                type: "missed_lethal",
+                severity: "critical",
+                availableDamage: totalAvailableDamage,
+                requiredDamage: opponent.life,
+                missedDamage: totalAvailableDamage - actualDamage,
+                lethalLine: describLethalLine(combatDamage, directDamage, alternativeDamage)
+            }
+    
+    return null
+```
+
+#### Damage Source Categories
+
+| Category | Detection Method | Examples |
+|----------|------------------|----------|
+| **Combat Damage** | Sum unblocked attackers | Creatures with evasion |
+| **Burn Spells** | Cards in hand with "damage" | Lightning Bolt, Fireball |
+| **Activated Abilities** | Permanents with damage abilities | Prodigal Pyromancer |
+| **Drain Effects** | Life loss + life gain | Gray Merchant of Asphodel |
+| **Combo Kills** | Known infinite combos | Splinter Twin + Deceiver Exarch |
+| **Alternative Wins** | Mill, poison, alternate win cons | Laboratory Maniac |
+
+#### Example Detection
+
+**Board State:**
+- Opponent: 12 life
+- You: 
+  - 3/3 flyer (unblocked = 3 damage)
+  - 4/4 creature (can attack = 4 damage)
+  - Lightning Bolt in hand (3 damage)
+  - Shock in hand (2 damage)
+  - 4 mana available
+
+**Total Available:** 3 + 4 + 3 + 2 = 12 damage (exactly lethal)
+
+**Actual Play:** Only attacked with flyer (3 damage), didn't cast burn
+
+**Blunder Report:**
+```
+🚨 MISSED LETHAL!
+Severity: Critical
+
+Opponent at 12 life
+You had exactly lethal:
+  - Attack with 3/3 flyer and 4/4: 7 damage
+  - Cast Lightning Bolt: 3 damage  
+  - Cast Shock: 2 damage
+  - Total: 12 damage
+
+You only dealt 3 damage. Opponent survived to win next turn.
+```
+
+### 9.6 Missed Triggers
+
+**Definition:** Failing to acknowledge a triggered ability when it triggers, which by tournament rules may be considered missed.
+
+#### Detection Algorithm
+
+```
+function detectMissedTrigger(events, gameState):
+    // Scan for trigger events
+    for each event in events.where(type == "TRIGGER"):
+        trigger = event.data
+        
+        // Check if trigger was acknowledged
+        acknowledgment = findTriggerAcknowledgment(events, trigger, lookAheadWindow=3)
+        
+        if not acknowledgment:
+            // Check if trigger is beneficial
+            benefit = estimateTriggerBenefit(trigger, gameState)
+            
+            if benefit > 0.5:  // Any positive value
+                return {
+                    type: "missed_trigger",
+                    severity: "high" if benefit > 2.0 else "medium",
+                    trigger: trigger,
+                    source: trigger.source,
+                    estimatedBenefit: benefit,
+                    tournamentImplication: "May be ruled missed by judge"
+                }
+    
+    return null
+```
+
+#### High-Value Trigger Categories
+
+| Trigger Type | Value | Examples |
+|--------------|-------|----------|
+| **Card Draw** | Very High | Mentor of the Meek, Rhystic Study |
+| **Token Generation** | High | Krenko, Mob Boss, Anointed Procession |
+| **Pump/Buffs** | Medium-High | Cathars' Crusade, Dictate of Heliod |
+| **Life Gain/Drain** | Medium | Soul Warden, Blood Artist |
+| **Resource Generation** | High | Smothering Tithe, Dockside Extortionist |
+| **Removal** | Very High | Grave Pact, Dictate of Erebos |
+
+#### Tournament Rules Context
+
+Per Magic Tournament Rules:
+
+- **Generally Detrimental Triggers:** Automatic (Pact upkeep, Cumulative Upkeep)
+- **Beneficial Triggers:** Must be acknowledged or considered missed
+- **Acknowledgment Window:** Varies by trigger type (immediately, before next action, etc.)
+
+#### Example Detection
+
+**Trigger:**
+```
+Whenever a creature enters the battlefield under your control, 
+draw a card. (Mentor of the Meek)
+```
+
+**Game Log:**
+```
+T3.MP1: MOVE c42 from P1:hand to battlefield (play creature)
+T3.MP1: TRIGGER s12 from c8 "Draw a card" (triggered)
+T3.MP1: CAST P1 spells c43 (cast next spell)
+  // No DRAW event occurred
+```
+
+**Blunder Report:**
+```
+⚠️ Missed Trigger Detected
+Severity: High
+
+Mentor of the Meek triggered when you played your creature.
+You should have drawn a card but continued playing.
+
+Tournament Ruling: This trigger is considered missed.
+You cannot draw the card retroactively.
+```
+
+### 9.7 Inefficient Mana Tapping
+
+**Definition:** Tapping lands in a way that unnecessarily restricts future options when an alternative tapping pattern exists.
+
+#### Detection Algorithm
+
+```
+function detectInefficientTapping(spellCast, manaTapped, gameState):
+    requiredMana = spellCast.manaCost
+    availableSources = gameState.battlefield.untappedLands
+    
+    // Generate all valid tapping patterns
+    validTappings = generateTappingCombinations(availableSources, requiredMana)
+    
+    // Score each pattern by remaining flexibility
+    for each pattern in validTappings:
+        remaining = availableSources - pattern.tapped
+        flexibilityScore = calculateFlexibility(remaining, gameState.hand)
+        pattern.score = flexibilityScore
+    
+    actualPattern = manaTapped
+    actualScore = calculateFlexibility(availableSources - actualPattern, gameState.hand)
+    
+    bestPattern = max(validTappings, key=lambda p: p.score)
+    
+    if bestPattern.score > actualScore + 1.0:  // Significant difference
+        return {
+            type: "inefficient_tapping",
+            severity: "medium",
+            actualPattern: actualPattern,
+            betterPattern: bestPattern,
+            lockedOutSpells: getLockedOutSpells(actualPattern, gameState.hand),
+            explanation: formatTappingExplanation(actualPattern, bestPattern)
+        }
+    
+    return null
+```
+
+#### Tapping Principles
+
+| Principle | Rule | Example |
+|-----------|------|----------|
+| **Preserve Color Options** | Tap monocolor sources first | Tap Island before Breeding Pool for {U} |
+| **Save Utility Lands** | Don't tap lands with abilities unnecessarily | Save Command Tower when able |
+| **Generic Last** | Use colored sources for generic mana | Tap Forest for {1}, save any-color for {G}{G} spell |
+| **Future-Proof** | Consider next spell in hand | Leave {W}{U} open, not {U}{U} |
+
+#### Example Detection
+
+**Board State:**
+- Untapped lands: Island, Hallowed Fountain (W/U), Plains
+- Hand: Counterspell (UU), Path to Exile (W)
+- Casting: Opt (U)
+
+**Actual Tapping:** Tap Hallowed Fountain for {U}
+
+**Game State After:**
+- Untapped: Island, Plains
+- Locked out: Cannot cast Counterspell (UU) — only 1U available
+
+**Better Tapping:** Tap Island for {U}
+
+**Result:**
+- Untapped: Hallowed Fountain, Plains  
+- Can cast: Both Counterspell (UU from Fountain + Island) and Path (W from Fountain or Plains)
+
+**Blunder Report:**
+```
+⚠️ Inefficient Mana Tapping
+Severity: Medium
+
+You tapped Hallowed Fountain to cast Opt.
+Better: Tap Island instead.
+
+Result: You can no longer cast Counterspell (UU) this turn.
+You locked yourself out of an important option.
+```
+
+### 9.8 Blunder Detection Integration
+
+Blunder detection integrates with the evaluation framework to provide contextual severity and prioritization.
+
+#### Severity Scoring
+
+```
+BlunderSeverity = impactMagnitude × gameContextMultiplier × recoverabilityFactor
+
+Where:
+  impactMagnitude = direct material/positional loss
+  gameContextMultiplier = {
+    critical_turn: 2.0,  // Game-deciding moment
+    normal_turn: 1.0,
+    early_game: 0.7      // More forgiving early
+  }
+  recoverabilityFactor = {
+    unrecoverable: 1.0,  // Can't fix (missed lethal)
+    high_cost: 0.8,      // Can fix but expensive
+    recoverable: 0.5     // Easily fixed next turn
+  }
+```
+
+#### Integration with Dimensions
+
+| Blunder Type | Primary Dimension | Delta Calculation |
+|--------------|-------------------|-------------------|
+| Unfavorable Attack | Board Presence | Loss of creature value |
+| Forgotten Ability | Flexibility, Resources | Opportunity cost of ability |
+| Spell Sequencing | Flexibility, Tempo | Locked-out spell value |
+| Missed Lethal | All (game-ending) | Total advantage thrown away |
+| Missed Trigger | (Trigger-dependent) | Benefit of trigger effect |
+| Inefficient Tapping | Flexibility | Locked-out spell value |
+
+#### Post-Game Blunder Report
+
+```json
+{
+  "game_id": "abc123",
+  "blunders": [
+    {
+      "turn": 5,
+      "type": "inefficient_tapping",
+      "severity": "medium",
+      "impact": -2.3,
+      "explanation": "Tapping Pattern locked out Counterspell",
+      "alternative": "Tap Island instead of Hallowed Fountain"
+    },
+    {
+      "turn": 8,
+      "type": "missed_lethal",
+      "severity": "critical",
+      "impact": -100.0,
+      "explanation": "Had exactly 12 damage available, opponent at 12 life",
+      "alternative": "Attack with all + cast both burn spells"
+    }
+  ],
+  "total_blunders": 2,
+  "critical_blunders": 1,
+  "estimated_impact": -102.3
+}
+```
+
+#### Learning Recommendations
+
+Blunder patterns over multiple games inform coaching priorities:
+
+| Pattern | Frequency | Recommendation |
+|---------|-----------|----------------|
+| Repeated inefficient tapping | >3 games | Practice mana management drills |
+| Multiple missed triggers | >2 games | Use paper/digital trigger reminders |
+| Sequencing errors | >4 games | Study mana curve and spell ordering |
+| Missed lethal | >1 game | Practice calculating damage before attacks |
+
+---
+
+## 10. Evaluation Before and After Decisions
 
 For each L2 Unit, the evaluation vector is computed **both before and after resolution**. The difference between these vectors represents the effect of the decision **independent of game outcome variance**.
 
@@ -1164,7 +1944,7 @@ This delta-centric approach enables feedback such as:
 
 ---
 
-## 10. Applications
+## 11. Applications
 
 The framework enables multiple applications:
 
@@ -1177,7 +1957,7 @@ The framework enables multiple applications:
 
 ---
 
-## 11. Limitations and Future Work
+## 12. Limitations and Future Work
 
 The proposed heuristics are approximations and require tuning per format.
 
@@ -1190,7 +1970,7 @@ The proposed heuristics are approximations and require tuning per format.
 
 ---
 
-## 12. Conclusion
+## 13. Conclusion
 
 This paper presents a unified notation and evaluation framework for Magic: The Gathering that bridges rules-accurate replay and learning-oriented analysis. By separating full-detail logs from pedagogical abstractions and adopting a vector-based evaluation model, the framework provides a foundation for explainable analysis, coaching, and AI research in complex card games.
 
