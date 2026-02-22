@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.2.0
+## Format Specification v1.4.0
 
 **Status:** Stable  
 **Published:** February 2026  
@@ -10,7 +10,9 @@
 - **1.0.0** (December 2025): Initial specification
 - **1.1.0** (February 2026): Added `win_condition`, `conceded`, `deck_name`, `deck_hash` algorithm, `RESOURCES` event, `card_name` in events
 - **1.2.0** (February 2026): Added `game_start` section (toss winner, starting player, play/draw choice), enhanced `MULLIGAN` event with full details
-- **1.2.1** (February 2026): Added `ACTIVE_PLAYER_CHANGE` event for turn transitions
+- **1.2.1** (February 2026): Added `ACTIVE_PLAYER_CHANGE` event for turn transitions, major impact turn/play identification guide
+- **1.3.0** (February 2026): Added `LEARNING_MARKER` event and `learning_markers` top-level section for player-placed game state bookmarks
+- **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
 
 ---
 
@@ -32,7 +34,7 @@ A replay file contains:
 ```json
 {
     "format": "mtg-replay",
-    "version": "1.2.0",
+    "version": "1.4.0",
     "meta": {
         /* Game metadata */
     },
@@ -51,6 +53,9 @@ A replay file contains:
     ],
     "views_l2": [
         /* Level 2: Learning view */
+    ],
+    "learning_markers": [
+        /* Player-placed bookmarks for review */
     ]
 }
 ```
@@ -143,12 +148,14 @@ The `meta` section contains information about the game:
         "P1": {
             "name": "Alice",
             "deck_name": "Atraxa Superfriends",
-            "deck_hash": "a3f8c2d1e9b7f604"
+            "deck_hash": "a3f8c2d1e9b7f604",
+            "deck_link": "https://mamo.games/deck/abc123-uuid#22022026_a3f8c2d1e9b7f604"
         },
         "P2": {
             "name": "Forge AI",
             "deck_name": "Mono-Red Aggro",
-            "deck_hash": "7b2e5a9c4d1f8306"
+            "deck_hash": "7b2e5a9c4d1f8306",
+            "deck_link": null
         }
     },
     "winner": "P1",
@@ -178,8 +185,32 @@ Each player entry contains:
 - `name` — Player display name
 - `deck_name` — Name of the deck used
 - `deck_hash` — SHA-256 based deck identifier (16 hex characters)
+- `deck_link` — URL to the deck page with revision anchor (optional, `null` for AI players)
 
-### 4.2 Deck Hash Calculation
+### 4.2 Deck Link Format
+
+The `deck_link` field provides a direct URL to the deck as it existed at game time. The URL includes a **fragment anchor** encoding the game date and the deck hash:
+
+```
+https://mamo.games/deck/<deck-uuid>#<DDMMYYYY>_<deck_hash>
+```
+
+**Anchor components:**
+- `DDMMYYYY` — Date the game was played (from `meta.timestamp`), e.g. `22022026` for February 22, 2026
+- `deck_hash` — The 16-character deck hash at game time
+
+**Examples:**
+```
+https://mamo.games/deck/abc123-uuid#22022026_a3f8c2d1e9b7f604
+https://mamo.games/deck/xyz789-uuid#13022026_7b2e5a9c4d1f8306
+```
+
+**Purpose:**
+- Links the replay to the exact deck version used
+- The anchor allows the frontend to resolve the correct deck revision even if the deck has been updated since the game
+- AI players or unknown decks use `null`
+
+### 4.3 Deck Hash Calculation
 
 The `deck_hash` provides a stable identifier for a deck based solely on its card contents, independent of the deck name. This allows identifying the same deck even if renamed.
 
@@ -196,7 +227,7 @@ The `deck_hash` provides a stable identifier for a deck based solely on its card
 - The core deck identity is defined by Main + Commander
 - Same maindeck with different sideboards = same hash
 
-### 4.3 Win Condition Values
+### 4.4 Win Condition Values
 
 | Value | Description |
 |-------|-------------|
@@ -208,7 +239,7 @@ The `deck_hash` provides a stable identifier for a deck based solely on its card
 | `alternate_win` | Card effect (e.g., Laboratory Maniac, Thassa's Oracle) |
 | `draw` | Game ended in a draw |
 
-### 4.4 Game Start Information
+### 4.5 Game Start Information
 
 The `game_start` section captures pre-game decisions:
 
@@ -415,6 +446,7 @@ Events where a player makes a strategic choice:
 | `PASS_PRIORITY`     | Player passes priority                     |
 | `MULLIGAN`          | Player mulligan decision (keep/mull)       |
 | `CHOOSE`            | Player makes a choice (mode, target, etc.) |
+| `LEARNING_MARKER`   | Player bookmarks current game state for later review |
 
 #### System Events
 
@@ -757,6 +789,36 @@ Recorded when the active player changes, typically at the start of a new turn:
 
 ---
 
+#### LEARNING_MARKER Event
+
+Placed by a player to bookmark the current game state for later review:
+
+```json
+{
+    "i": 63,
+    "t": "T4.MP1:1",
+    "a": "P1",
+    "type": "LEARNING_MARKER",
+    "data": {
+        "marker_id": "lm-1",
+        "label": "Should I have bolted the creature instead?",
+        "category": "decision_review",
+        "created_at": "2026-02-21T10:30:00Z"
+    }
+}
+```
+
+**Data Fields:**
+
+- `marker_id` — Unique marker identifier (`lm-` prefix + sequential number)
+- `label` — Player-written description or question
+- `category` — One of: `"decision_review"`, `"mistake"`, `"turning_point"`, `"interesting_interaction"`, `"sideboard_note"`, `"general"`
+- `created_at` — ISO 8601 timestamp when marker was placed
+
+**Note:** This event does not affect game state or deterministic replay. It is skipped during replay execution.
+
+---
+
 ## 8. Level 2 Learning View (views_l2)
 
 ### 8.1 L2 Unit Structure
@@ -959,6 +1021,134 @@ The `annotations` field provides learning context:
 - `alternative_lines` — Array of alternative plays to consider
 - `key_moment` — Boolean indicating if this was a pivotal moment
 - `teaching_notes` — Free-form notes for learning
+
+### 8.6 Learning Markers
+
+Players can place **learning markers** at any point during a game to bookmark the current game state for later review. Markers are recorded as `LEARNING_MARKER` events in the L1 log and additionally collected in a top-level `learning_markers` array for quick navigation.
+
+#### LEARNING_MARKER Event (L1)
+
+Recorded inline in the event log when the player places a marker:
+
+```json
+{
+    "i": 63,
+    "t": "T4.MP1:1",
+    "a": "P1",
+    "type": "LEARNING_MARKER",
+    "data": {
+        "marker_id": "lm-1",
+        "label": "Should I have bolted the creature instead of going face?",
+        "category": "decision_review",
+        "created_at": "2026-02-21T10:30:00Z"
+    }
+}
+```
+
+**Data Fields:**
+
+- `marker_id` — Unique identifier for this marker (`lm-` prefix + sequential number)
+- `label` — Player-written description or question about this moment
+- `category` — Classification of the marker (see table below)
+- `created_at` — ISO 8601 timestamp when the marker was placed
+
+**Marker Categories:**
+
+| Category | Description |
+|----------|-------------|
+| `decision_review` | Re-examine a specific decision made |
+| `mistake` | Player believes they made an error here |
+| `turning_point` | Moment the game shifted |
+| `interesting_interaction` | Notable rules or card interaction |
+| `sideboard_note` | Insight for sideboarding |
+| `general` | Uncategorized bookmark |
+
+**Note:** `LEARNING_MARKER` events do **not** affect game state or replay determinism. They are purely annotation events and are skipped during deterministic replay.
+
+#### Top-Level `learning_markers` Summary
+
+The top-level `learning_markers` array provides a quick-access index of all markers in the file, enriched with snapshot context so viewers can jump directly to bookmarked moments:
+
+```json
+{
+    "learning_markers": [
+        {
+            "marker_id": "lm-1",
+            "event_index": 63,
+            "t": "T4.MP1:1",
+            "player": "P1",
+            "label": "Should I have bolted the creature instead of going face?",
+            "category": "decision_review",
+            "created_at": "2026-02-21T10:30:00Z",
+            "snapshot": {
+                "turn": 4,
+                "phase": "MAIN_1",
+                "active_player": "P1",
+                "life_totals": { "P1": 16, "P2": 11 },
+                "cards_in_hand": { "P1": 3, "P2": 5 },
+                "battlefield_count": { "P1": 4, "P2": 3 },
+                "stack_empty": true
+            },
+            "notes": "I had Bolt in hand. Used it on P2 face but the 4/4 ended up killing me two turns later."
+        },
+        {
+            "marker_id": "lm-2",
+            "event_index": 91,
+            "t": "T6.COMBAT:3",
+            "player": "P1",
+            "label": "Bad blocks — lost two creatures for nothing",
+            "category": "mistake",
+            "created_at": "2026-02-21T10:35:00Z",
+            "snapshot": {
+                "turn": 6,
+                "phase": "COMBAT",
+                "active_player": "P2",
+                "life_totals": { "P1": 8, "P2": 11 },
+                "cards_in_hand": { "P1": 1, "P2": 3 },
+                "battlefield_count": { "P1": 3, "P2": 5 },
+                "stack_empty": false
+            },
+            "notes": ""
+        }
+    ]
+}
+```
+
+**Summary Fields:**
+
+- `marker_id` — Matches the L1 event `marker_id`
+- `event_index` — L1 event index for direct lookup
+- `t` — Time marker of the bookmarked moment
+- `player` — Player who placed the marker
+- `label` — Short description
+- `category` — Marker category
+- `created_at` — When marker was placed
+- `snapshot` — Lightweight game state at the marked moment:
+  - `turn` — Current turn number
+  - `phase` — Current phase
+  - `active_player` — Who is the active player
+  - `life_totals` — Life totals for all players
+  - `cards_in_hand` — Hand sizes
+  - `battlefield_count` — Number of permanents per player
+  - `stack_empty` — Whether the stack is empty
+- `notes` — Extended free-form notes (can be added/edited after the game)
+
+#### Usage Patterns
+
+**During Game (Live Markers):**
+Player presses a "bookmark" button during gameplay. The system records a `LEARNING_MARKER` L1 event at the current time marker and adds a summary entry to `learning_markers`.
+
+**Post-Game Review (Retrospective Markers):**
+Player reviews the replay and adds markers at interesting moments. These are only added to the `learning_markers` array (no L1 event inserted, to preserve log integrity). Retrospective markers have `event_index` pointing to the nearest L1 event.
+
+**UI Recommendations:**
+- Display markers as pins/flags on a game timeline
+- Allow filtering by `category`
+- Clicking a marker jumps to the full game state at that `event_index`
+- Provide a summary panel listing all markers with labels
+- Enable export of markers as a standalone study list
+
+---
 
 ---
 
@@ -1496,6 +1686,247 @@ The replay format enables calculation of key performance indicators (KPIs) for a
 - High unused mana → add more instant-speed interaction
 - Low card efficiency → deck building: replace underperforming cards
 
+### 16.7 Identifying Major Impact Turns and Plays
+
+To help players focus on the most important moments in a game, identify and highlight turns and individual plays that had significant impact on the game outcome. This enables efficient review and learning from key decision points.
+
+#### Turn-Level Impact Scoring
+
+**High Impact Turn Indicators:**
+
+1. **Life Swing Magnitude**
+   - **Formula:** `ΔLife = |Life(t) - Life(t-1)| for all players`
+   - **Threshold:** Sum of life changes ≥ 10 = High Impact
+   - **Example:** Turn where 15 damage dealt = Major impact turn
+   - **Detection:** Sum absolute value of all LIFE events in turn
+
+2. **Board State Swing**
+   - **Formula:** `ΔBoard = |BoardScore(you,t) - BoardScore(you,t-1)| + |BoardScore(opp,t) - BoardScore(opp,t-1)|`
+   - **Threshold:** Change ≥ 8 = High Impact
+   - **Example:** Turn where 3 creatures die and 2 are played
+   - **Detection:** Compare cumulative board presence scores
+
+3. **Critical Turn Match**
+   - If turn equals Critical Turn Number (from 16.3) → Highest Impact
+   - This turn decided the game outcome
+   - Should be prominently marked
+
+4. **Game-Ending Events**
+   - Turn contains `win_condition` event → Maximum Impact
+   - Turn has `conceded` in metadata → Maximum Impact
+   - Last turn of game → High Impact
+
+5. **Multiple High-Value Plays**
+   - Turn with 3+ significant events (see Play-Level scoring below)
+   - "Combo turn" indicator
+   - Dense decision-making turn
+
+**Turn Impact Rating Scale:**
+
+```
+Critical (Score 10):  Critical Turn or Game-Ending Turn
+Major (Score 7-9):    Life swing ≥15 OR Board swing ≥12
+High (Score 4-6):     Life swing 10-14 OR Board swing 8-11 OR 3+ significant plays
+Medium (Score 2-3):   Life swing 5-9 OR Board swing 4-7 OR 2 significant plays
+Low (Score 0-1):      Routine development, no major swings
+```
+
+#### Play-Level Impact Scoring
+
+**High Impact Play Indicators:**
+
+1. **Removal/Destruction**
+   - **Detection:** MOVE event with `from: "battlefield"`, `to: "graveyard"` or `"exile"`
+   - **Impact Score:** Based on destroyed permanent's value
+     - Creature with power ≥4: Score 3
+     - Planeswalker: Score 4
+     - Enchantment/Artifact affecting multiple cards: Score 3-5
+   - **Enhancement:** Check if permanent was key threat (highest power/toughness)
+
+2. **Board Wipes**
+   - **Detection:** Single event causing 3+ permanents to leave battlefield
+   - **Impact Score:** 8-10 (extremely high)
+   - **Example:** Wrath of God removes 5 creatures
+
+3. **Large Life Swings**
+   - **Detection:** Single LIFE event with `|delta| ≥ 5`
+   - **Impact Score:** Scale with magnitude
+     - 5-9 life: Score 3
+     - 10-14 life: Score 5
+     - ≥15 life: Score 7
+
+4. **Combat - Major Attacks**
+   - **Detection:** DECLARE_ATTACKERS with 3+ attackers OR total attacking power ≥10
+   - **Impact Score:** 4-6
+   - **Enhancement:** Check if attack was decisive (reduced opponent below safe threshold)
+
+5. **Card Draw Bursts**
+   - **Detection:** Multiple DRAW events in single turn (3+ cards drawn beyond normal draw)
+   - **Impact Score:** 3-4
+   - **Example:** Sphinx's Revelation for 5 cards
+
+6. **Expensive Spells**
+   - **Detection:** CAST event with mana cost ≥6
+   - **Impact Score:** 2-4 (high CMC often means high impact)
+   - **Enhancement:** Check card type (creatures, planeswalkers score higher)
+
+7. **Stack Interactions**
+   - **Detection:** Counterspell on expensive/critical spell
+   - **Impact Score:** Based on countered spell's cost
+   - **Formula:** `CounterspellImpact = CounteredSpellCMC × 0.5`
+
+8. **First Threat Resolved**
+   - **Detection:** First creature with power ≥3 entering battlefield (Effective Turn)
+   - **Impact Score:** 4
+   - **Context:** Establishing board presence
+
+**Play Impact Rating Scale:**
+
+```
+Game-Winning (Score 9-10):  Play directly wins the game
+Critical (Score 7-8):       Board wipe, major threat removal, game-saving counter
+High (Score 4-6):           Significant creature/planeswalker, large life swing, key removal
+Medium (Score 2-3):         Moderate threat, card advantage, expensive spell
+Low (Score 0-1):            Routine play, minor creature, basic land
+```
+
+#### Implementation Guidance for UI Display
+
+**Turn View Highlighting:**
+
+```typescript
+interface TurnHighlight {
+    turnNumber: number;
+    impactScore: number;  // 0-10
+    impactRating: "critical" | "major" | "high" | "medium" | "low";
+    reasons: string[];    // ["Life swing: 15", "Board wipe", "Critical turn"]
+    iconBadge: string;    // "⚠️" for critical, "🔥" for major, etc.
+    borderColor: string;  // "#dc3545" for critical, "#ff9800" for major
+}
+```
+
+**Recommended Visual Indicators:**
+
+- **Critical Turns:** Red border, "⚠️" badge, expanded by default
+- **Major Impact Turns:** Orange border, "🔥" badge, highlighted header
+- **High Impact Turns:** Yellow border, "⭐" badge
+- **Medium/Low:** Standard styling, collapsed by default
+
+**Play-Level Display:**
+
+```typescript
+interface PlayHighlight {
+    eventIndex: number;
+    playDescription: string;  // "Cast Wrath of God (board wipe)"
+    impactScore: number;
+    impactCategory: "board-wipe" | "removal" | "threat" | "life-swing" | "card-advantage";
+    tooltipDetails: string;   // Extended explanation
+}
+```
+
+**Turn Summary with Impact:**
+
+```
+Turn 5 [⚠️ CRITICAL TURN - Game Decided]
+├─ Life Swing: -12 (opponent)
+├─ 🔥 Cast Craterhoof Behemoth (game-winning threat)
+└─ Impact Score: 10/10
+```
+
+#### Automatic Event Filtering
+
+**"Show Only Important Moments" Feature:**
+
+Filter display to turns with `impactScore ≥ 4`, allowing players to:
+- Skip routine development turns
+- Focus on pivotal decisions
+- Quickly review game-deciding moments
+
+**Example Filter Implementation:**
+
+```typescript
+const majorImpactTurns = parsedGame.turns.filter(turn => {
+    const score = calculateTurnImpactScore(turn, parsedGame);
+    return score >= 4;  // Show only High, Major, or Critical turns
+});
+```
+
+#### Detection Algorithm Summary
+
+```typescript
+function calculateTurnImpactScore(turn: GameTurn, game: ParsedGame): number {
+    let score = 0;
+    
+    // Check if critical turn
+    if (turn.turnNumber === game.criticalTurn) {
+        return 10;  // Maximum impact
+    }
+    
+    // Check for game-ending events
+    if (turn.events.some(e => e.type === "win_condition")) {
+        return 10;
+    }
+    
+    // Calculate life swing
+    const lifeSwing = calculateLifeSwing(turn.events);
+    if (lifeSwing >= 15) score += 5;
+    else if (lifeSwing >= 10) score += 3;
+    else if (lifeSwing >= 5) score += 1;
+    
+    // Calculate board swing
+    const boardSwing = calculateBoardSwing(turn, getPreviousTurn(turn));
+    if (boardSwing >= 12) score += 5;
+    else if (boardSwing >= 8) score += 3;
+    else if (boardSwing >= 4) score += 1;
+    
+    // Count significant plays
+    const significantPlays = countSignificantPlays(turn.events);
+    score += Math.min(significantPlays, 3);  // Cap at +3 for multiple plays
+    
+    return Math.min(score, 10);  // Cap at 10
+}
+```
+
+#### User Experience Recommendations
+
+1. **Timeline View:** Show impact scores as vertical bars (higher = more important)
+2. **Color Coding:** Use heat map colors (red = critical, orange = major, yellow = high)
+3. **Expandable Details:** Click high-impact turn to see breakdown of why it's important
+4. **Quick Navigation:** "Jump to next critical moment" button
+5. **Impact Summary:** Game overview showing all high-impact turns in sequence
+6. **Comparison View:** Side-by-side "What happened" vs "What could have happened"
+
+#### Example Impact Annotation
+
+```json
+{
+    "turn": 5,
+    "impactScore": 9,
+    "impactRating": "critical",
+    "impactReasons": [
+        "Life swing: 15 damage dealt to opponent",
+        "Board wipe: 4 creatures destroyed",
+        "Game-winning threat deployed: Craterhoof Behemoth"
+    ],
+    "keyMoments": [
+        {
+            "eventIndex": 67,
+            "description": "Cast Wrath of God",
+            "impact": "board-wipe",
+            "score": 8
+        },
+        {
+            "eventIndex": 72,
+            "description": "Cast Craterhoof Behemoth",
+            "impact": "game-winning-threat",
+            "score": 9
+        }
+    ]
+}
+```
+
+This impact scoring system enables replay viewers to quickly identify and focus on the turns and plays that mattered most, improving learning efficiency and game analysis quality.
+
 ---
 
 ## 17. Version History
@@ -1505,6 +1936,8 @@ The replay format enables calculation of key performance indicators (KPIs) for a
 | 1.0.0   | 2025-12-20 | Initial specification |
 | 1.1.0   | 2026-02-08 | Added `win_condition`, `conceded`, `deck_name` in meta; `deck_hash` algorithm; `RESOURCES` event; `card_name` in CAST, MOVE, PUT_ON_STACK, DAMAGE events |
 | 1.2.0   | 2026-02-12 | Added Learning Helper Statistics section with KPIs for game analysis |
+| 1.2.1   | 2026-02-14 | Added section 16.7 on identifying major impact turns and plays for UI display highlighting |
+| 1.3.0   | 2026-02-21 | Added `LEARNING_MARKER` event type and `learning_markers` top-level section for player-placed bookmarks |
 
 ---
 
