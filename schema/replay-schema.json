@@ -327,9 +327,11 @@
                     "enum": [
                         "CAST", "ACTIVATE", "PLAY_LAND", "DECLARE_ATTACKERS", 
                         "DECLARE_BLOCKERS", "PASS_PRIORITY", "MULLIGAN", "CHOOSE",
+                        "LEARNING_MARKER",
                         "PUT_ON_STACK", "TRIGGER", "RESOLVE", "MOVE", "DAMAGE",
                         "LIFE", "COUNTERS", "TAP", "PHASE_CHANGE", "RESOURCES",
-                        "STATE_BASED", "RANDOM"
+                        "STATE_BASED", "RANDOM",
+                        "DRAW", "GAME_START", "ACTIVE_PLAYER_CHANGE"
                     ],
                     "description": "Event type"
                 },

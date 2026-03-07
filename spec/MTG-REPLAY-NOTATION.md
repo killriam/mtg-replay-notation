@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.4.0
+## Format Specification v1.5.0
 
 **Status:** Stable  
 **Published:** February 2026  
@@ -13,6 +13,7 @@
 - **1.2.1** (February 2026): Added `ACTIVE_PLAYER_CHANGE` event for turn transitions, major impact turn/play identification guide
 - **1.3.0** (February 2026): Added `LEARNING_MARKER` event and `learning_markers` top-level section for player-placed game state bookmarks
 - **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
+- **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
 
 ---
 
@@ -34,7 +35,8 @@ A replay file contains:
 ```json
 {
     "format": "mtg-replay",
-    "version": "1.4.0",
+    "version": "1.5.0",
+    "spec_version": "1.5.0",
     "meta": {
         /* Game metadata */
     },
@@ -48,15 +50,21 @@ A replay file contains:
     "initial_state": {
         /* Starting game state */
     },
-    "log_l1": [
-        /* Level 1: Event log */
+    "events": [
+        /* Event log (renamed from log_l1 in v1.5.0) */
     ],
     "views_l2": [
         /* Level 2: Learning view */
     ],
     "learning_markers": [
         /* Player-placed bookmarks for review */
-    ]
+    ],
+    "per_turn_summary": [
+        /* Pre-computed per-turn statistics (v1.5.0+) */
+    ],
+    "game_summary": {
+        /* Pre-computed game-wide statistics (v1.5.0+) */
+    }
 }
 ```
 
@@ -186,6 +194,9 @@ Each player entry contains:
 - `deck_name` — Name of the deck used
 - `deck_hash` — SHA-256 based deck identifier (16 hex characters)
 - `deck_link` — URL to the deck page with revision anchor (optional, `null` for AI players)
+- `is_ai` — Boolean indicating whether this player is an AI (v1.5.0+)
+- `player_type` — String: `"Human"` or `"AI"` (v1.5.0+)
+- `starting_life` — Starting life total for this player (v1.5.0+)
 
 ### 4.2 Deck Link Format
 
@@ -467,6 +478,8 @@ Automatic game actions and state changes:
 | `RESOURCES`    | Player resources at upkeep      |
 | `STATE_BASED`  | State-based action occurs       |
 | `RANDOM`       | Random event (shuffle, reveal)  |
+| `DRAW`         | Card is drawn from library (v1.5.0+) |
+| `GAME_START`   | Game initialization event (v1.5.0+) |
 
 ---
 
@@ -819,6 +832,64 @@ Placed by a player to bookmark the current game state for later review:
 
 ---
 
+#### DRAW Event (v1.5.0+)
+
+Recorded when a card is drawn from the library:
+
+```json
+{
+    "i": 1,
+    "t": "T0.PREGAME",
+    "a": "SYS",
+    "type": "DRAW",
+    "data": {
+        "obj": "c1",
+        "card_name": "Lightning Bolt",
+        "from": "P1:library",
+        "to": "P1:hand",
+        "pos": "top",
+        "visibility": "private"
+    }
+}
+```
+
+**Data Fields:**
+
+- `obj` — Object ID of the card drawn
+- `card_name` — Human-readable card name
+- `from` — Source zone (always `<Player>:library`)
+- `to` — Destination zone (always `<Player>:hand`)
+- `pos` — Position drawn from (`"top"`)
+- `visibility` — Whether the draw is public or private
+
+---
+
+#### GAME_START Event (v1.5.0+)
+
+Recorded as the first event (index 0) to capture game initialization:
+
+```json
+{
+    "i": 0,
+    "t": "T0.PREGAME",
+    "a": "SYS",
+    "type": "GAME_START",
+    "data": {
+        "players": ["P1", "P2", "P3", "P4"],
+        "game_type": "Constructed",
+        "first_player": "P1"
+    }
+}
+```
+
+**Data Fields:**
+
+- `players` — Array of player IDs participating in the game
+- `game_type` — Game format (e.g., `"Constructed"`, `"Commander"`)
+- `first_player` — Player ID who takes the first turn
+
+---
+
 ## 8. Level 2 Learning View (views_l2)
 
 ### 8.1 L2 Unit Structure
@@ -1149,6 +1220,125 @@ Player reviews the replay and adds markers at interesting moments. These are onl
 - Enable export of markers as a standalone study list
 
 ---
+
+## 8.7 Event Log Key Name Change (v1.5.0)
+
+Starting with v1.5.0, the event log key was renamed from `log_l1` to `events` at the top level of the replay file. Consumers should check for both keys for backward compatibility:
+
+```
+events = file.log_l1 || file.events || []
+```
+
+---
+
+## 8.8 Pre-computed Statistics (v1.5.0+)
+
+### Per-Turn Summary (`per_turn_summary`)
+
+An array of per-turn statistics, indexed by turn. Each entry provides per-player stats for that turn:
+
+```json
+{
+    "turn": 1,
+    "active_player": "P1",
+    "players": {
+        "P1": {
+            "lands_played": 1,
+            "land_drop_rating": "good",
+            "cards_drawn": 1,
+            "spells_cast": 0,
+            "abilities_activated": 0,
+            "land_count": 1,
+            "available_mana": 0,
+            "life": 40,
+            "cards_in_hand": 7,
+            "creatures_on_battlefield": 0,
+            "permanents_on_battlefield": 1,
+            "damage_dealt": 0,
+            "damage_taken": 0
+        }
+    }
+}
+```
+
+**Per-Player Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `lands_played` | Number of lands played this turn |
+| `land_drop_rating` | `"bad"` (0 lands), `"good"` (1 land), `"super"` (2+ lands) |
+| `cards_drawn` | Cards drawn this turn |
+| `spells_cast` | Spells cast this turn |
+| `abilities_activated` | Abilities activated this turn |
+| `land_count` | Total lands on battlefield at end of turn |
+| `available_mana` | Available mana at end of turn |
+| `life` | Life total at end of turn |
+| `cards_in_hand` | Hand size at end of turn |
+| `creatures_on_battlefield` | Creatures on battlefield at end of turn |
+| `permanents_on_battlefield` | Total permanents on battlefield at end of turn |
+| `damage_dealt` | Total damage dealt this turn |
+| `damage_taken` | Total damage taken this turn |
+
+### Game Summary (`game_summary`)
+
+A single object with game-wide statistics per player:
+
+```json
+{
+    "total_turns": 70,
+    "duration_seconds": 8881,
+    "winner": "P1",
+    "win_condition": "unknown",
+    "players": {
+        "P1": {
+            "total_cards_drawn": 39,
+            "card_draw_rate": 0.56,
+            "total_spells_cast": 24,
+            "spell_velocity": 0.34,
+            "total_abilities_activated": 31,
+            "missed_land_drops": 4,
+            "total_lands_played": 15,
+            "peak_mana": 71,
+            "total_damage_dealt": 230,
+            "total_damage_received": 4,
+            "total_creatures_played": 13,
+            "starting_life": 40,
+            "ending_life": 44,
+            "life_delta": 4,
+            "total_counters_placed": 0
+        }
+    }
+}
+```
+
+**Top-level Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `total_turns` | Total number of turns in the game |
+| `duration_seconds` | Game duration in seconds |
+| `winner` | Winning player ID |
+| `win_condition` | How the game was won |
+
+**Per-Player Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `total_cards_drawn` | Total cards drawn during the game |
+| `card_draw_rate` | Cards drawn per turn (average) |
+| `total_spells_cast` | Total spells cast |
+| `spell_velocity` | Spells cast per turn (average) |
+| `total_abilities_activated` | Total abilities activated |
+| `missed_land_drops` | Turns where no land was played |
+| `total_lands_played` | Total lands played |
+| `peak_mana` | Maximum available mana during the game |
+| `total_damage_dealt` | Total damage dealt |
+| `total_damage_received` | Total damage received |
+| `total_creatures_played` | Total creatures played |
+| `starting_life` | Life total at game start |
+| `ending_life` | Life total at game end |
+| `life_delta` | Net life change (ending - starting) |
+| `total_counters_placed` | Total counters placed on permanents |
 
 ---
 
@@ -1938,6 +2128,8 @@ This impact scoring system enables replay viewers to quickly identify and focus 
 | 1.2.0   | 2026-02-12 | Added Learning Helper Statistics section with KPIs for game analysis |
 | 1.2.1   | 2026-02-14 | Added section 16.7 on identifying major impact turns and plays for UI display highlighting |
 | 1.3.0   | 2026-02-21 | Added `LEARNING_MARKER` event type and `learning_markers` top-level section for player-placed bookmarks |
+| 1.4.0   | 2026-02-21 | Added `deck_link` with revision anchor to player metadata |
+| 1.5.0   | 2026-02-22 | Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` events; extended player metadata |
 
 ---
 

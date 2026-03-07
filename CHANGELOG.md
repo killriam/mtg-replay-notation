@@ -5,6 +5,50 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-02-22
+
+### Changed
+- **Event Log Key Renamed**
+  - `log_l1` renamed to `events` at top level
+  - Consumers should check for both keys for backward compatibility
+
+### Added
+- **New Top-Level Fields**
+  - `spec_version` — Explicit spec version (may differ from `version`)
+  - `per_turn_summary` — Pre-computed per-turn statistics array
+  - `game_summary` — Pre-computed game-wide statistics object
+
+- **New Event Types**
+  - `DRAW` — Card draw event with `obj`, `card_name`, `from`, `to`, `pos`, `visibility`
+  - `GAME_START` — Game initialization event with `players`, `game_type`, `first_player`
+
+- **Extended Player Metadata**
+  - `is_ai` — Boolean indicating whether player is an AI
+  - `player_type` — String: `"Human"` or `"AI"`
+  - `starting_life` — Starting life total for the player
+
+- **Extended Event Data**
+  - `CAST` — Added `total_mana_value` and `play_mode` fields to cost data
+  - `PLAY_LAND` — Added `player` field
+  - `TRIGGER` — Added `trigger` (text) and `source_name` fields
+  - `ACTIVATE` — Added `ability` (text) and `controller` fields
+  - `COUNTERS` — Added `card_name` field
+
+- **New Phase Code**
+  - `END_OF_TURN` — End of turn phase (in addition to existing `END`)
+
+## [1.4.0] - 2026-02-21
+
+### Added
+- **Deck Link** — `deck_link` field in player metadata with revision anchor format
+
+## [1.3.0] - 2026-02-21
+
+### Added
+- **Learning Markers**
+  - `LEARNING_MARKER` event type for player-placed game state bookmarks
+  - `learning_markers` top-level section for quick marker navigation
+
 ## [1.2.0] - 2026-02-08
 
 ### Added
