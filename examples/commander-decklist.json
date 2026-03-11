@@ -1,0 +1,592 @@
+{
+    "format": "mtg-commander-decklist",
+    "version": "1.0.0",
+    "meta": {
+        "deck_id": "atraxa-superfriends-v1",
+        "deck_name": "Atraxa Superfriends",
+        "format": "Commander",
+        "colors": ["W", "U", "B", "G"],
+        "created": "2026-03-11",
+        "updated": "2026-03-11",
+        "author": "Alice",
+        "description": "Proliferate planeswalkers to their ultimate abilities. Win by recurring ultimates with Doubling Season and Deepglow Skate."
+    },
+    "commander": [
+        {
+            "quantity": 1,
+            "name": "Atraxa, Praetors' Voice",
+            "edition": "C16",
+            "collector_number": "35",
+            "primary_mechanic": "counters",
+            "additional_mechanics": ["proliferate", "win-condition"]
+        }
+    ],
+    "main": [
+        {
+            "quantity": 1,
+            "name": "Sol Ring",
+            "edition": "C21",
+            "collector_number": "263",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["mana-rock"]
+        },
+        {
+            "quantity": 1,
+            "name": "Arcane Signet",
+            "edition": "ELD",
+            "collector_number": "331",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["mana-rock", "fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Talisman of Dominance",
+            "edition": "MH1",
+            "collector_number": "227",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["mana-rock", "fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Talisman of Progress",
+            "edition": "MH1",
+            "collector_number": "228",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["mana-rock", "fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Talisman of Unity",
+            "edition": "MH1",
+            "collector_number": "229",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["mana-rock", "fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Smothering Tithe",
+            "edition": "RNA",
+            "collector_number": "22",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["token"]
+        },
+        {
+            "quantity": 1,
+            "name": "Cultivate",
+            "edition": "C21",
+            "collector_number": "152",
+            "primary_mechanic": "land-ramp",
+            "additional_mechanics": ["fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Kodama's Reach",
+            "edition": "C21",
+            "collector_number": "171",
+            "primary_mechanic": "land-ramp",
+            "additional_mechanics": ["fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Farseek",
+            "edition": "M13",
+            "collector_number": "170",
+            "primary_mechanic": "land-ramp",
+            "additional_mechanics": ["fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Nature's Lore",
+            "edition": "A25",
+            "collector_number": "175",
+            "primary_mechanic": "land-ramp",
+            "additional_mechanics": ["fixing"]
+        },
+        {
+            "quantity": 1,
+            "name": "Doubling Season",
+            "edition": "BBD",
+            "collector_number": "183",
+            "primary_mechanic": "counters",
+            "additional_mechanics": ["combo-piece", "token", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Deepglow Skate",
+            "edition": "C16",
+            "collector_number": "3",
+            "primary_mechanic": "counters",
+            "additional_mechanics": ["combo-piece", "win-condition"]
+        },
+        {
+            "quantity": 1,
+            "name": "Inexorable Tide",
+            "edition": "SOM",
+            "collector_number": "32",
+            "primary_mechanic": "proliferate",
+            "additional_mechanics": ["counters", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Contagion Engine",
+            "edition": "SOM",
+            "collector_number": "155",
+            "primary_mechanic": "proliferate",
+            "additional_mechanics": ["counters", "removal"]
+        },
+        {
+            "quantity": 1,
+            "name": "Rhystic Study",
+            "edition": "PCY",
+            "collector_number": "48",
+            "primary_mechanic": "card-draw",
+            "additional_mechanics": ["stax"]
+        },
+        {
+            "quantity": 1,
+            "name": "Sylvan Library",
+            "edition": "EMA",
+            "collector_number": "179",
+            "primary_mechanic": "card-draw",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Consecrated Sphinx",
+            "edition": "MBS",
+            "collector_number": "24",
+            "primary_mechanic": "card-draw",
+            "additional_mechanics": ["threat"]
+        },
+        {
+            "quantity": 1,
+            "name": "Phyrexian Arena",
+            "edition": "A25",
+            "collector_number": "106",
+            "primary_mechanic": "card-draw",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Sensei's Divining Top",
+            "edition": "CHK",
+            "collector_number": "268",
+            "primary_mechanic": "card-draw",
+            "additional_mechanics": ["filtering"]
+        },
+        {
+            "quantity": 1,
+            "name": "Vampiric Tutor",
+            "edition": "EMA",
+            "collector_number": "118",
+            "primary_mechanic": "tutor",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Demonic Tutor",
+            "edition": "A25",
+            "collector_number": "87",
+            "primary_mechanic": "tutor",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Worldly Tutor",
+            "edition": "6ED",
+            "collector_number": "256",
+            "primary_mechanic": "tutor",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Swords to Plowshares",
+            "edition": "A25",
+            "collector_number": "35",
+            "primary_mechanic": "removal",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Path to Exile",
+            "edition": "MMA",
+            "collector_number": "20",
+            "primary_mechanic": "removal",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Beast Within",
+            "edition": "NPH",
+            "collector_number": "117",
+            "primary_mechanic": "removal",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Cyclonic Rift",
+            "edition": "RTR",
+            "collector_number": "35",
+            "primary_mechanic": "board-wipe",
+            "additional_mechanics": ["removal"]
+        },
+        {
+            "quantity": 1,
+            "name": "Wrath of God",
+            "edition": "A25",
+            "collector_number": "36",
+            "primary_mechanic": "board-wipe",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Supreme Verdict",
+            "edition": "RTR",
+            "collector_number": "209",
+            "primary_mechanic": "board-wipe",
+            "additional_mechanics": ["counter"]
+        },
+        {
+            "quantity": 1,
+            "name": "Counterspell",
+            "edition": "MH1",
+            "collector_number": "52",
+            "primary_mechanic": "counter",
+            "additional_mechanics": ["protection"]
+        },
+        {
+            "quantity": 1,
+            "name": "Negate",
+            "edition": "M21",
+            "collector_number": "71",
+            "primary_mechanic": "counter",
+            "additional_mechanics": ["protection"]
+        },
+        {
+            "quantity": 1,
+            "name": "Teferi's Protection",
+            "edition": "C17",
+            "collector_number": "6",
+            "primary_mechanic": "protection",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Heroic Intervention",
+            "edition": "AER",
+            "collector_number": "109",
+            "primary_mechanic": "protection",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Teferi, Hero of Dominaria",
+            "edition": "DOM",
+            "collector_number": "207",
+            "primary_mechanic": "win-condition",
+            "additional_mechanics": ["card-draw", "removal", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Jace, the Mind Sculptor",
+            "edition": "EMA",
+            "collector_number": "55",
+            "primary_mechanic": "card-draw",
+            "additional_mechanics": ["win-condition", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Liliana of the Veil",
+            "edition": "UMA",
+            "collector_number": "110",
+            "primary_mechanic": "removal",
+            "additional_mechanics": ["win-condition", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Garruk Wildspeaker",
+            "edition": "M10",
+            "collector_number": "183",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": ["token", "win-condition", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Elspeth, Sun's Champion",
+            "edition": "THS",
+            "collector_number": "9",
+            "primary_mechanic": "win-condition",
+            "additional_mechanics": ["token", "board-wipe", "synergy"]
+        },
+        {
+            "quantity": 1,
+            "name": "Command Tower",
+            "edition": "C21",
+            "collector_number": "279",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Exotic Orchard",
+            "edition": "C21",
+            "collector_number": "283",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Reflecting Pool",
+            "edition": "CNS",
+            "collector_number": "245",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Breeding Pool",
+            "edition": "RNA",
+            "collector_number": "246",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Watery Grave",
+            "edition": "GRN",
+            "collector_number": "259",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Godless Shrine",
+            "edition": "RNA",
+            "collector_number": "248",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Temple Garden",
+            "edition": "GRN",
+            "collector_number": "258",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Overgrown Tomb",
+            "edition": "GRN",
+            "collector_number": "253",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Hallowed Fountain",
+            "edition": "RNA",
+            "collector_number": "251",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Glacial Fortress",
+            "edition": "XLN",
+            "collector_number": "255",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Drowned Catacomb",
+            "edition": "XLN",
+            "collector_number": "253",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Sunpetal Grove",
+            "edition": "XLN",
+            "collector_number": "261",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Woodland Cemetery",
+            "edition": "DOM",
+            "collector_number": "248",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Hinterland Harbor",
+            "edition": "DOM",
+            "collector_number": "240",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 1,
+            "name": "Isolated Chapel",
+            "edition": "DOM",
+            "collector_number": "241",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 4,
+            "name": "Forest",
+            "edition": "XLN",
+            "collector_number": "277",
+            "primary_mechanic": "ramp",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 4,
+            "name": "Island",
+            "edition": "XLN",
+            "collector_number": "265",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 3,
+            "name": "Plains",
+            "edition": "XLN",
+            "collector_number": "261",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        },
+        {
+            "quantity": 3,
+            "name": "Swamp",
+            "edition": "XLN",
+            "collector_number": "269",
+            "primary_mechanic": "fixing",
+            "additional_mechanics": []
+        }
+    ],
+    "sideboard": [],
+    "maybeboard": [
+        {
+            "quantity": 1,
+            "name": "Parallel Lives",
+            "edition": "INN",
+            "collector_number": "203",
+            "primary_mechanic": "token",
+            "additional_mechanics": ["combo-piece"],
+            "note": "Budget alternative to Doubling Season for token strategies"
+        },
+        {
+            "quantity": 1,
+            "name": "Vorinclex, Monstrous Raider",
+            "edition": "KHM",
+            "collector_number": "199",
+            "primary_mechanic": "counters",
+            "additional_mechanics": ["proliferate", "threat"],
+            "note": "Strong upgrade if budget allows; doubles counters added"
+        }
+    ],
+    "deck_rules": {
+        "mulligan": {
+            "card_values": {
+                "land": 1.0,
+                "cmc_0_to_2": 0.8,
+                "cmc_3": 0.5,
+                "other": 0.3
+            },
+            "card_overrides": [
+                {
+                    "name": "Sol Ring",
+                    "value": 1.2,
+                    "reason": "Best turn-1 play in Commander; always keep"
+                },
+                {
+                    "name": "Arcane Signet",
+                    "value": 1.0,
+                    "reason": "Fixes all four colors on turn 2"
+                },
+                {
+                    "name": "Doubling Season",
+                    "value": 0.6,
+                    "reason": "CMC 5 but a game-winning piece; worth keeping in opening hand"
+                },
+                {
+                    "name": "Smothering Tithe",
+                    "value": 0.7,
+                    "reason": "Generates massive ramp advantage in multiplayer"
+                }
+            ],
+            "thresholds": [
+                {
+                    "round": 0,
+                    "hand_size": 7,
+                    "min_value": 3.5,
+                    "description": "Keep 7-card hand if total value is at least 3.5"
+                },
+                {
+                    "round": 1,
+                    "hand_size": 6,
+                    "min_value": 3.0,
+                    "description": "Keep 6-card hand if total value is at least 3.0"
+                },
+                {
+                    "round": 2,
+                    "hand_size": 5,
+                    "min_value": 2.5,
+                    "description": "Keep 5-card hand if total value is at least 2.5"
+                },
+                {
+                    "round": 3,
+                    "hand_size": 4,
+                    "min_value": 2.0,
+                    "description": "Keep 4-card hand if total value is at least 2.0"
+                }
+            ]
+        },
+        "combos": [
+            {
+                "id": "combo_doubling_atraxa",
+                "name": "Doubling Season + Atraxa",
+                "pieces": ["Doubling Season", "Atraxa, Praetors' Voice"],
+                "result": "Each end step, Atraxa's proliferate doubles all counters on all permanents and players",
+                "tags": ["counters", "engine", "win-condition"]
+            },
+            {
+                "id": "combo_deepglow_walkers",
+                "name": "Deepglow Skate + Planeswalkers",
+                "pieces": ["Deepglow Skate"],
+                "result": "On ETB doubles loyalty counters on all planeswalkers, immediately enabling most ultimates",
+                "tags": ["one-shot", "win-condition", "counters"]
+            },
+            {
+                "id": "combo_doubling_deepglow",
+                "name": "Doubling Season + Deepglow Skate",
+                "pieces": ["Doubling Season", "Deepglow Skate"],
+                "result": "Deepglow Skate's ETB trigger doubles counters, then Doubling Season doubles them again — quadrupling loyalty on all planeswalkers",
+                "tags": ["counters", "win-condition", "two-card"]
+            }
+        ],
+        "dont_combos": [
+            {
+                "id": "dc_rhystic_teferi_time_raveler",
+                "name": "Rhystic Study vs. Teferi, Time Raveler",
+                "pieces": ["Rhystic Study", "Teferi, Time Raveler"],
+                "reason": "Teferi prevents opponents from casting spells at instant speed, removing all windows where Rhystic Study's payment trigger could be used proactively.",
+                "severity": "minor"
+            },
+            {
+                "id": "dc_supreme_verdict_heroic_intervention",
+                "name": "Supreme Verdict vs. Heroic Intervention",
+                "pieces": ["Supreme Verdict", "Heroic Intervention"],
+                "reason": "Supreme Verdict cannot be countered; if you cast it, Heroic Intervention cannot save your own creatures from your own board wipe.",
+                "severity": "major"
+            }
+        ]
+    }
+}
