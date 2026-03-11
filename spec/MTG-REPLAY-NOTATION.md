@@ -2119,7 +2119,55 @@ This impact scoring system enables replay viewers to quickly identify and focus 
 
 ---
 
-## 17. Version History
+## 17. Commander Decklist Notation
+
+A companion specification defines the JSON format for recording Commander format
+decklists. The decklist format extends the replay notation with four deck sections,
+artwork identification, deck mechanic role labeling, and a strategic rule set for
+opening hand evaluation and combo tracking.
+
+### 17.1 Companion Specification
+
+See **[Commander Decklist Notation](./commander-decklist-spec.md)** for the full
+specification, including:
+
+- Deck sections: `commander`, `main`, `sideboard`, `maybeboard`
+- Card entry fields: `edition` + `collector_number` for artwork identification,
+  `primary_mechanic` and `additional_mechanics` for strategic roles
+- Mulligan scoring model with per-category card values and per-round thresholds
+- Combo and anti-synergy (`dont_combos`) declarations
+
+### 17.2 Inline Decklist in Replay Files (v1.6.0+)
+
+A replay file may embed decklist data directly using the optional top-level
+`decklist` field. The value is a map from player ID to a full `CommanderDecklist`
+object (as defined in the companion spec):
+
+```json
+{
+    "format": "mtg-replay",
+    "version": "1.6.0",
+    "decklist": {
+        "P1": {
+            "format": "mtg-commander-decklist",
+            "version": "1.0.0",
+            "meta": { "deck_name": "Atraxa Superfriends", "format": "Commander" },
+            "commander": [ /* ... */ ],
+            "main": [ /* ... */ ],
+            "sideboard": [],
+            "maybeboard": [],
+            "deck_rules": { /* ... */ }
+        }
+    }
+}
+```
+
+When both `deck_link` (in `meta.players`) and an inline `decklist` entry are present
+for the same player, consumers should prefer the inline `decklist`.
+
+---
+
+## 18. Version History
 
 | Version | Date       | Changes               |
 | ------- | ---------- | --------------------- |
@@ -2130,10 +2178,11 @@ This impact scoring system enables replay viewers to quickly identify and focus 
 | 1.3.0   | 2026-02-21 | Added `LEARNING_MARKER` event type and `learning_markers` top-level section for player-placed bookmarks |
 | 1.4.0   | 2026-02-21 | Added `deck_link` with revision anchor to player metadata |
 | 1.5.0   | 2026-02-22 | Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` events; extended player metadata |
+| 1.6.0   | 2026-03-11 | Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files |
 
 ---
 
-## 18. Legal
+## 19. Legal
 
 This format is designed for Magic: The Gathering gameplay recording and analysis. Magic: The Gathering is trademark of Wizards of the Coast LLC.
 

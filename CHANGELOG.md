@@ -5,6 +5,32 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-03-11
+
+### Added
+- **Commander Decklist Notation** — New companion specification
+  (`spec/commander-decklist-spec.md`) defining a JSON format for Commander decklists
+  with four sections: `commander`, `main`, `sideboard`, and `maybeboard`
+- **Card Entry Fields** — Each card entry records `quantity`, `name`, `edition`,
+  `collector_number` (together uniquely identifying the artwork), `primary_mechanic`,
+  and `additional_mechanics`
+- **Deck Rules** — New `deck_rules` block in decklist files with:
+  - `mulligan` — Opening hand scoring model: configurable per-category card values
+    (`land`, `cmc_0_to_2`, `cmc_3`, `other`), per-card overrides, and
+    per-round keep thresholds
+  - `combos` — Array of named combo declarations (pieces, result, tags)
+  - `dont_combos` — Array of anti-synergy declarations (pieces, reason, severity)
+- **Inline Decklist in Replay Files** — Optional top-level `decklist` map in replay
+  files allows embedding full decklist objects keyed by player ID
+- **New JSON Schema** — `schema/commander-decklist-schema.json` for validating
+  standalone decklist files
+- **Schema Updates** — `schema/replay-schema.json` updated to v1.6.0 with new
+  `CommanderDecklist`, `DecklistMeta`, `DecklistCard`, `DeckRules`, `MulliganRule`,
+  `CardValueOverride`, `MulliganThreshold`, `ComboDeclaration`, and
+  `DontComboDeclaration` definitions
+- **Example** — `examples/commander-decklist.json` — reference Atraxa Superfriends
+  Commander decklist demonstrating all new fields
+
 ## [1.5.0] - 2026-02-22
 
 ### Changed

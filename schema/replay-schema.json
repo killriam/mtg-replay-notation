@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://github.com/Killriam/mtg-replay-notation/schema/replay-schema.json",
     "title": "MTG Replay Notation",
-    "description": "Schema for MTG Replay & Learning Notation v1.2.0",
+    "description": "Schema for MTG Replay & Learning Notation v1.6.0",
     "type": "object",
     "required": ["format", "version", "meta", "seed", "card_index", "initial_state", "log_l1"],
     "properties": {
@@ -50,6 +50,13 @@
                 "$ref": "#/definitions/L2Unit"
             },
             "description": "Level 2 learning units"
+        },
+        "decklist": {
+            "type": "object",
+            "additionalProperties": {
+                "$ref": "#/definitions/CommanderDecklist"
+            },
+            "description": "Optional map of player ID to inline commander decklist (v1.6.0+)"
         }
     },
     "definitions": {
@@ -470,6 +477,296 @@
                 },
                 "teaching_notes": {
                     "type": "string"
+                }
+            }
+        },
+        "CommanderDecklist": {
+            "type": "object",
+            "required": ["format", "version", "meta", "commander", "main"],
+            "description": "Commander format decklist with mechanic roles, mulligan rules, and combo declarations",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "const": "mtg-commander-decklist",
+                    "description": "Format identifier for commander decklists"
+                },
+                "version": {
+                    "type": "string",
+                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                    "description": "Semantic version of the decklist format"
+                },
+                "meta": {
+                    "$ref": "#/definitions/DecklistMeta"
+                },
+                "commander": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "$ref": "#/definitions/DecklistCard" },
+                    "description": "Cards that start in the command zone (commander, partner, background, companion)"
+                },
+                "main": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/DecklistCard" },
+                    "description": "Main deck cards (99 cards in Commander, or 98 when using a companion)"
+                },
+                "sideboard": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/DecklistCard" },
+                    "description": "Sideboard cards (excluded from deck_hash)"
+                },
+                "maybeboard": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/DecklistCard" },
+                    "description": "Considered but not included cards (excluded from deck_hash)"
+                },
+                "deck_rules": {
+                    "$ref": "#/definitions/DeckRules",
+                    "description": "Strategic rules: mulligan scoring, combo declarations, anti-synergies"
+                }
+            }
+        },
+        "DecklistMeta": {
+            "type": "object",
+            "required": ["deck_name", "format"],
+            "description": "Metadata describing the decklist",
+            "properties": {
+                "deck_id": {
+                    "type": "string",
+                    "description": "Unique identifier for the deck (UUID recommended)"
+                },
+                "deck_name": {
+                    "type": "string",
+                    "description": "Display name for the deck"
+                },
+                "format": {
+                    "type": "string",
+                    "const": "Commander",
+                    "description": "Must be 'Commander'"
+                },
+                "colors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["W", "U", "B", "R", "G"]
+                    },
+                    "description": "Color identity as WUBRG letters"
+                },
+                "created": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Creation date (ISO 8601, e.g., '2026-03-11')"
+                },
+                "updated": {
+                    "type": "string",
+                    "format": "date",
+                    "description": "Last modification date (ISO 8601)"
+                },
+                "author": {
+                    "type": "string",
+                    "description": "Name or username of the deck builder"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Free-text description of the deck strategy"
+                }
+            }
+        },
+        "DecklistCard": {
+            "type": "object",
+            "required": ["quantity", "name", "edition", "collector_number", "primary_mechanic"],
+            "description": "A single card entry in the decklist",
+            "properties": {
+                "quantity": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Number of copies of this card"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Exact English card name as printed"
+                },
+                "edition": {
+                    "type": "string",
+                    "description": "Set code identifying the specific printing (e.g., 'RNA', 'C16', 'MH2')"
+                },
+                "collector_number": {
+                    "type": "string",
+                    "description": "Collector number within the edition (e.g., '22', '263a')"
+                },
+                "primary_mechanic": {
+                    "type": "string",
+                    "description": "Main strategic role this card fills in the deck"
+                },
+                "additional_mechanics": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Additional mechanic roles or synergy labels"
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Free-text note about this card's role or budget considerations"
+                }
+            }
+        },
+        "DeckRules": {
+            "type": "object",
+            "description": "Strategic rules for evaluating and playing this specific deck",
+            "properties": {
+                "mulligan": {
+                    "$ref": "#/definitions/MulliganRule",
+                    "description": "Opening hand evaluation rules"
+                },
+                "combos": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/ComboDeclaration" },
+                    "description": "Known synergistic combinations in the deck"
+                },
+                "dont_combos": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/DontComboDeclaration" },
+                    "description": "Known anti-synergies and conflicting card pairs"
+                }
+            }
+        },
+        "MulliganRule": {
+            "type": "object",
+            "description": "Mulligan scoring model: assign a value to each card and compare total to a threshold",
+            "properties": {
+                "card_values": {
+                    "type": "object",
+                    "description": "Default value per card category used for hand scoring",
+                    "properties": {
+                        "land": {
+                            "type": "number",
+                            "description": "Value assigned to any land card (default: 1.0)"
+                        },
+                        "cmc_0_to_2": {
+                            "type": "number",
+                            "description": "Value for non-land cards with CMC 0-2 (default: 0.8)"
+                        },
+                        "cmc_3": {
+                            "type": "number",
+                            "description": "Value for non-land cards with CMC exactly 3 (default: 0.5)"
+                        },
+                        "other": {
+                            "type": "number",
+                            "description": "Value for all other non-land cards with CMC 4+ (default: 0.3)"
+                        }
+                    }
+                },
+                "card_overrides": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/CardValueOverride" },
+                    "description": "Per-card value overrides that take precedence over category defaults"
+                },
+                "thresholds": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/MulliganThreshold" },
+                    "description": "Minimum hand value per mulligan round to decide to keep"
+                }
+            }
+        },
+        "CardValueOverride": {
+            "type": "object",
+            "required": ["name", "value"],
+            "description": "Override the default category value for a specific card",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Exact card name"
+                },
+                "value": {
+                    "type": "number",
+                    "description": "Custom mulligan value for this card"
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Explanation for the override"
+                }
+            }
+        },
+        "MulliganThreshold": {
+            "type": "object",
+            "required": ["round", "min_value"],
+            "description": "Minimum hand score required to keep at a given mulligan round",
+            "properties": {
+                "round": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Mulligan round (0 = initial 7-card hand; 1 = after first mulligan, etc.)"
+                },
+                "hand_size": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Expected hand size at this round (informational)"
+                },
+                "min_value": {
+                    "type": "number",
+                    "description": "Minimum total hand value required to keep"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Human-readable rule description"
+                }
+            }
+        },
+        "ComboDeclaration": {
+            "type": "object",
+            "required": ["id", "name", "pieces", "result"],
+            "description": "A known synergistic combination of cards in the deck",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique identifier for this combo within the deck"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the combo"
+                },
+                "pieces": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "type": "string" },
+                    "description": "Card names required for the combo"
+                },
+                "result": {
+                    "type": "string",
+                    "description": "Description of what the combo achieves"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Labels such as 'infinite', 'win-condition', 'two-card'"
+                }
+            }
+        },
+        "DontComboDeclaration": {
+            "type": "object",
+            "required": ["id", "name", "pieces", "reason"],
+            "description": "A known anti-synergy between cards in the deck",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique identifier for this anti-synergy"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name for the anti-synergy"
+                },
+                "pieces": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": { "type": "string" },
+                    "description": "Card names involved in the conflict"
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Explanation of why these cards conflict in this deck"
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["critical", "major", "minor"],
+                    "description": "How badly the anti-synergy affects the deck (default: 'major')"
                 }
             }
         }
