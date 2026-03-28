@@ -249,6 +249,7 @@ The `deck_hash` provides a stable identifier for a deck based solely on its card
 | `concession` | Opponent conceded |
 | `alternate_win` | Card effect (e.g., Laboratory Maniac, Thassa's Oracle) |
 | `draw` | Game ended in a draw |
+| `unknown` | Win condition could not be determined |
 
 ### 4.5 Game Start Information
 
@@ -411,11 +412,11 @@ The `initial_state` captures the game configuration at start:
 
 ---
 
-## 7. Level 1 Events (log_l1)
+## 7. Level 1 Events (`events`)
 
 ### 7.1 Event Structure
 
-Each event in the `log_l1` array has this structure:
+Each event in the `events` array has this structure:
 
 ```json
 {
@@ -457,6 +458,7 @@ Events where a player makes a strategic choice:
 | `PASS_PRIORITY`     | Player passes priority                     |
 | `MULLIGAN`          | Player mulligan decision (keep/mull)       |
 | `CHOOSE`            | Player makes a choice (mode, target, etc.) |
+| `DISCARD`           | Player discards a card                     |
 | `LEARNING_MARKER`   | Player bookmarks current game state for later review |
 
 #### System Events
@@ -887,6 +889,336 @@ Recorded as the first event (index 0) to capture game initialization:
 - `players` — Array of player IDs participating in the game
 - `game_type` — Game format (e.g., `"Constructed"`, `"Commander"`)
 - `first_player` — Player ID who takes the first turn
+
+---
+
+#### PLAY_LAND Event
+
+Recorded when a player plays a land for the turn:
+
+```json
+{
+    "i": 3,
+    "t": "T1.MP1:0",
+    "a": "P1",
+    "type": "PLAY_LAND",
+    "data": {
+        "card": "c1",
+        "card_name": "Mountain",
+        "player": "P1"
+    }
+}
+```
+
+**Data Fields:**
+
+- `card` — Card ID of the land being played
+- `card_name` — Human-readable card name
+- `player` — Player who played the land (v1.5.0+)
+
+---
+
+#### ACTIVATE Event
+
+Recorded when a player activates an ability on a permanent or card:
+
+```json
+{
+    "i": 30,
+    "t": "T3.MP1:2",
+    "a": "P1",
+    "type": "ACTIVATE",
+    "data": {
+        "card": "c12",
+        "card_name": "Birthing Pod",
+        "ability": "{1}{G/P}, {T}, Sacrifice a creature: Search...",
+        "controller": "P1",
+        "cost": {},
+        "targets": [],
+        "choices": {}
+    }
+}
+```
+
+**Data Fields:**
+
+- `card` — Card ID of the source permanent
+- `card_name` — Human-readable card name
+- `ability` — Text description of the activated ability (v1.5.0+)
+- `controller` — Player activating the ability (v1.5.0+)
+- `cost` — Costs paid (mana, tap, sacrifice, etc.)
+- `targets` — Array of targets chosen
+- `choices` — Other choices made
+
+---
+
+#### TRIGGER Event
+
+Recorded when a triggered ability goes on the stack:
+
+```json
+{
+    "i": 31,
+    "t": "T3.MP1:3",
+    "a": "SYS",
+    "type": "TRIGGER",
+    "data": {
+        "source": "c12",
+        "source_name": "Rhystic Study",
+        "trigger": "Whenever an opponent casts a spell, you may pay {1}. If you don't, that player draws a card.",
+        "controller": "P1"
+    }
+}
+```
+
+**Data Fields:**
+
+- `source` — Card ID of the source permanent
+- `source_name` — Human-readable card name (v1.5.0+)
+- `trigger` — Text of the trigger condition (v1.5.0+)
+- `controller` — Player who controls the triggered ability
+
+---
+
+#### TAP Event
+
+Recorded when a permanent taps or untaps:
+
+```json
+{
+    "i": 20,
+    "t": "T2.MP1:1",
+    "a": "SYS",
+    "type": "TAP",
+    "data": {
+        "obj": "c5",
+        "card_name": "Forest",
+        "tapped": true
+    }
+}
+```
+
+**Data Fields:**
+
+- `obj` — Object ID of the permanent
+- `card_name` — Human-readable card name
+- `tapped` — `true` if the permanent is now tapped, `false` if untapped
+
+---
+
+#### COUNTERS Event
+
+Recorded when counters are added to or removed from a permanent:
+
+```json
+{
+    "i": 35,
+    "t": "T4.MP1:2",
+    "a": "SYS",
+    "type": "COUNTERS",
+    "data": {
+        "obj": "c12",
+        "card_name": "Luminarch Aspirant",
+        "counter_type": "+1/+1",
+        "delta": 1,
+        "new_total": 3
+    }
+}
+```
+
+**Data Fields:**
+
+- `obj` — Object ID of the permanent
+- `card_name` — Human-readable card name (v1.5.0+)
+- `counter_type` — Type of counter (e.g., `"+1/+1"`, `"loyalty"`, `"charge"`)
+- `delta` — Change amount (positive = added, negative = removed)
+- `new_total` — New counter total on the permanent
+
+---
+
+#### DECLARE_ATTACKERS Event
+
+Recorded when a player declares attacking creatures:
+
+```json
+{
+    "i": 40,
+    "t": "T3.COMBAT:1",
+    "a": "P1",
+    "type": "DECLARE_ATTACKERS",
+    "data": {
+        "attackers": {
+            "c12": "P2",
+            "c15": "P3"
+        }
+    }
+}
+```
+
+**Data Fields:**
+
+- `attackers` — Map of attacker card IDs to their attack targets (player IDs or planeswalker card IDs)
+
+---
+
+#### DECLARE_BLOCKERS Event
+
+Recorded when a player declares blocking creatures:
+
+```json
+{
+    "i": 41,
+    "t": "T3.COMBAT:2",
+    "a": "P2",
+    "type": "DECLARE_BLOCKERS",
+    "data": {
+        "blockers": {
+            "c30": ["c12"]
+        }
+    }
+}
+```
+
+**Data Fields:**
+
+- `blockers` — Map of blocker card IDs to arrays of attacker card IDs they are blocking
+
+---
+
+#### DISCARD Event
+
+Recorded when a player discards a card:
+
+```json
+{
+    "i": 55,
+    "t": "T3.END:1",
+    "a": "P1",
+    "type": "DISCARD",
+    "data": {
+        "obj": "c7",
+        "card_name": "Cancel",
+        "from": "P1:hand",
+        "to": "P1:graveyard",
+        "forced": false
+    }
+}
+```
+
+**Data Fields:**
+
+- `obj` — Object ID of the discarded card
+- `card_name` — Human-readable card name
+- `from` — Source zone (always `<Player>:hand`)
+- `to` — Destination zone (typically `<Player>:graveyard`)
+- `forced` — `true` if discarded by an opponent's effect, `false` for hand-size cleanup or voluntary
+
+---
+
+#### PASS_PRIORITY Event
+
+Recorded when a player passes priority without acting:
+
+```json
+{
+    "i": 7,
+    "t": "T1.MP1:2",
+    "a": "P1",
+    "type": "PASS_PRIORITY",
+    "data": {}
+}
+```
+
+**Data Fields:**
+
+- *(No data fields — empty object)*
+
+---
+
+#### CHOOSE Event
+
+Recorded when a player makes a choice (mode selection, target assignment, etc.):
+
+```json
+{
+    "i": 32,
+    "t": "T3.MP1:3",
+    "a": "P1",
+    "type": "CHOOSE",
+    "data": {
+        "choice_type": "mode",
+        "options": ["Destroy target artifact", "Destroy target enchantment"],
+        "chosen": "Destroy target artifact",
+        "source": "c14",
+        "source_name": "Reclamation Sage"
+    }
+}
+```
+
+**Data Fields:**
+
+- `choice_type` — Type of choice (e.g., `"mode"`, `"target"`, `"order"`, `"distribution"`)
+- `options` — Available options
+- `chosen` — The option selected
+- `source` — Card ID of the source requiring the choice
+- `source_name` — Human-readable source card name
+
+---
+
+#### STATE_BASED Event
+
+Recorded when a state-based action occurs (e.g., creature dies from lethal damage):
+
+```json
+{
+    "i": 80,
+    "t": "T5.COMBAT:9",
+    "a": "SYS",
+    "type": "STATE_BASED",
+    "data": {
+        "action": "destroy",
+        "reason": "lethal_damage",
+        "obj": "c24",
+        "card_name": "Elvish Mystic"
+    }
+}
+```
+
+**Data Fields:**
+
+- `action` — What happened (`"destroy"`, `"sacrifice"`, `"exile"`, `"discard_to_hand_size"`)
+- `reason` — Why the SBA triggered (`"lethal_damage"`, `"zero_toughness"`, `"legend_rule"`, `"deathtouch"`)
+- `obj` — Object ID affected
+- `card_name` — Human-readable card name
+
+> **Note:** Most SBA results also produce a corresponding `MOVE` event. The `STATE_BASED` event provides the *reason* for the zone change.
+
+---
+
+#### RANDOM Event
+
+Recorded for random game actions (shuffle, scry, coin flip, etc.):
+
+```json
+{
+    "i": 25,
+    "t": "T2.MP1:1",
+    "a": "SYS",
+    "type": "RANDOM",
+    "data": {
+        "action": "shuffle",
+        "player": "P1",
+        "reason": "tutor"
+    }
+}
+```
+
+**Data Fields:**
+
+- `action` — Type of random event (`"shuffle"`, `"scry"`, `"coin_flip"`, `"reveal"`)
+- `player` — Player whose library/selection is affected
+- `reason` — What caused the random event (e.g., card name or game rule)
+- `result` — Outcome for binary events (e.g., `"heads"`, `"tails"`)
 
 ---
 
@@ -1363,7 +1695,8 @@ Here's a minimal complete replay file:
 ```json
 {
     "format": "mtg-replay",
-    "version": "1.1.0",
+    "version": "1.5.0",
+    "spec_version": "1.5.0",
     "meta": {
         "game_id": "game-abc123",
         "timestamp": "2025-12-20T14:30:00Z",
@@ -1401,7 +1734,7 @@ Here's a minimal complete replay file:
             "P2:library": { "count": 60 }
         }
     },
-    "log_l1": [
+    "events": [
         {
             "i": 0,
             "t": "T1.UP",
@@ -1480,7 +1813,7 @@ To understand what happened in a game:
 
 1. Read the **metadata** for context (who played, who won)
 2. Check the **card_index** to understand what cards were in the game
-3. Read **log_l1** sequentially from start to finish
+3. Read **events** sequentially from start to finish
 4. Use **time markers** to understand when events occurred
 5. Follow **object IDs** to track specific cards through the game
 

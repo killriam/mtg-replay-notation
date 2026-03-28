@@ -1,6 +1,7 @@
 {
     "format": "mtg-replay",
-    "version": "1.1.0",
+    "version": "1.5.0",
+    "spec_version": "1.5.0",
     "meta": {
         "game_id": "game-example-001",
         "timestamp": "2026-02-08T14:30:00Z",
@@ -9,12 +10,20 @@
             "P1": {
                 "name": "Alice",
                 "deck_name": "Burn",
-                "deck_hash": "a3f8c2d1e9b7f604"
+                "deck_hash": "a3f8c2d1e9b7f604",
+                "deck_link": null,
+                "is_ai": false,
+                "player_type": "Human",
+                "starting_life": 20
             },
             "P2": {
                 "name": "Bob",
                 "deck_name": "Control",
-                "deck_hash": "7b2e5a9c4d1f8306"
+                "deck_hash": "7b2e5a9c4d1f8306",
+                "deck_link": null,
+                "is_ai": false,
+                "player_type": "Human",
+                "starting_life": 20
             }
         },
         "winner": "P1",
@@ -24,32 +33,63 @@
         "duration_seconds": 240
     },
     "seed": 1707397800000,
+    "game_start": {
+        "toss_winner": "P1",
+        "play_draw_choice": "play",
+        "starting_player": "P1",
+        "mulligans": [
+            {
+                "player": "P1",
+                "starting_hand_size": 7,
+                "mulligans_taken": 0,
+                "final_hand_size": 7,
+                "cards_to_bottom": 0
+            },
+            {
+                "player": "P2",
+                "starting_hand_size": 7,
+                "mulligans_taken": 0,
+                "final_hand_size": 7,
+                "cards_to_bottom": 0
+            }
+        ]
+    },
     "card_index": {
         "Mountain": {
             "name": "Mountain",
             "cost": "",
-            "type": "Basic Land — Mountain"
+            "type": "Basic Land — Mountain",
+            "oracle_text": "({T}: Add {R}.)",
+            "subtypes": ["Mountain"]
         },
         "Lightning Bolt": {
             "name": "Lightning Bolt",
             "cost": "{R}",
             "type": "Instant",
-            "oracle_id": "8a2c9d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e"
+            "oracle_id": "8a2c9d3e-4f5a-6b7c-8d9e-0f1a2b3c4d5e",
+            "oracle_text": "Lightning Bolt deals 3 damage to any target."
         },
         "Monastery Swiftspear": {
             "name": "Monastery Swiftspear",
             "cost": "{R}",
-            "type": "Creature — Human Monk"
+            "type": "Creature — Human Monk",
+            "oracle_text": "Haste\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)",
+            "power": "1",
+            "toughness": "2",
+            "subtypes": ["Human", "Monk"]
         },
         "Island": {
             "name": "Island",
             "cost": "",
-            "type": "Basic Land — Island"
+            "type": "Basic Land — Island",
+            "oracle_text": "({T}: Add {U}.)",
+            "subtypes": ["Island"]
         },
         "Counterspell": {
             "name": "Counterspell",
             "cost": "{U}{U}",
-            "type": "Instant"
+            "type": "Instant",
+            "oracle_text": "Counter target spell."
         }
     },
     "initial_state": {
@@ -112,9 +152,20 @@
             }
         }
     },
-    "log_l1": [
+    "events": [
         {
             "i": 0,
+            "t": "T0.PREGAME",
+            "a": "SYS",
+            "type": "GAME_START",
+            "data": {
+                "players": ["P1", "P2"],
+                "game_type": "Constructed",
+                "first_player": "P1"
+            }
+        },
+        {
+            "i": 1,
             "t": "T1.UP",
             "a": "SYS",
             "type": "PHASE_CHANGE",
@@ -125,7 +176,7 @@
             }
         },
         {
-            "i": 1,
+            "i": 2,
             "t": "T1.MP1",
             "a": "SYS",
             "type": "PHASE_CHANGE",
@@ -136,7 +187,7 @@
             }
         },
         {
-            "i": 2,
+            "i": 3,
             "t": "T1.MP1:0",
             "a": "P1",
             "type": "PLAY_LAND",
@@ -146,7 +197,7 @@
             }
         },
         {
-            "i": 3,
+            "i": 4,
             "t": "T1.MP1:0",
             "a": "SYS",
             "type": "MOVE",
@@ -159,7 +210,7 @@
             }
         },
         {
-            "i": 4,
+            "i": 5,
             "t": "T1.MP1:1",
             "a": "P1",
             "type": "CAST",
@@ -178,7 +229,7 @@
             }
         },
         {
-            "i": 5,
+            "i": 6,
             "t": "T1.MP1:1",
             "a": "SYS",
             "type": "PUT_ON_STACK",
@@ -194,21 +245,21 @@
             }
         },
         {
-            "i": 6,
+            "i": 7,
             "t": "T1.MP1:2",
             "a": "P1",
             "type": "PASS_PRIORITY",
             "data": {}
         },
         {
-            "i": 7,
+            "i": 8,
             "t": "T1.MP1:2",
             "a": "P2",
             "type": "PASS_PRIORITY",
             "data": {}
         },
         {
-            "i": 8,
+            "i": 9,
             "t": "T1.MP1:3",
             "a": "SYS",
             "type": "RESOLVE",
@@ -217,7 +268,7 @@
             }
         },
         {
-            "i": 9,
+            "i": 10,
             "t": "T1.MP1:3",
             "a": "SYS",
             "type": "MOVE",
@@ -230,7 +281,7 @@
             }
         },
         {
-            "i": 10,
+            "i": 11,
             "t": "T1.END",
             "a": "SYS",
             "type": "PHASE_CHANGE",
@@ -241,7 +292,18 @@
             }
         },
         {
-            "i": 11,
+            "i": 12,
+            "t": "T2.UP",
+            "a": "SYS",
+            "type": "ACTIVE_PLAYER_CHANGE",
+            "data": {
+                "previous_player": "P1",
+                "new_player": "P2",
+                "turn_number": 2
+            }
+        },
+        {
+            "i": 13,
             "t": "T2.UP",
             "a": "SYS",
             "type": "PHASE_CHANGE",
@@ -252,7 +314,7 @@
             }
         },
         {
-            "i": 12,
+            "i": 14,
             "t": "T2.UP",
             "a": "SYS",
             "type": "RESOURCES",
@@ -263,7 +325,7 @@
             }
         },
         {
-            "i": 13,
+            "i": 15,
             "t": "T3.COMBAT:5",
             "a": "SYS",
             "type": "DAMAGE",
@@ -278,7 +340,7 @@
             }
         },
         {
-            "i": 14,
+            "i": 16,
             "t": "T3.COMBAT:5",
             "a": "SYS",
             "type": "LIFE",
@@ -295,8 +357,8 @@
             "u": 0,
             "t_start": "T1.MP1",
             "t_end": "T1.MP1:3",
-            "l1_range": [1, 9],
-            "decision_events": [2, 4],
+            "l1_range": [2, 10],
+            "decision_events": [3, 5],
             "before": {
                 "turn": 1,
                 "phase": "MAIN_1",
@@ -332,7 +394,7 @@
                     "card_name": "Monastery Swiftspear",
                     "targets": [],
                     "choices": {},
-                    "linked_decision_event": 4,
+                    "linked_decision_event": 5,
                     "mana_paid": ["R"],
                     "outcome": "resolved"
                 }
@@ -390,5 +452,122 @@
                 "teaching_notes": "Standard turn 1 play for aggro: land + one-drop."
             }
         }
-    ]
+    ],
+    "learning_markers": [],
+    "per_turn_summary": [
+        {
+            "turn": 1,
+            "active_player": "P1",
+            "players": {
+                "P1": {
+                    "lands_played": 1,
+                    "land_drop_rating": "good",
+                    "cards_drawn": 0,
+                    "spells_cast": 1,
+                    "abilities_activated": 0,
+                    "land_count": 1,
+                    "available_mana": 0,
+                    "life": 20,
+                    "cards_in_hand": 5,
+                    "creatures_on_battlefield": 1,
+                    "permanents_on_battlefield": 2,
+                    "damage_dealt": 0,
+                    "damage_taken": 0
+                },
+                "P2": {
+                    "lands_played": 0,
+                    "land_drop_rating": "bad",
+                    "cards_drawn": 0,
+                    "spells_cast": 0,
+                    "abilities_activated": 0,
+                    "land_count": 0,
+                    "available_mana": 0,
+                    "life": 20,
+                    "cards_in_hand": 7,
+                    "creatures_on_battlefield": 0,
+                    "permanents_on_battlefield": 0,
+                    "damage_dealt": 0,
+                    "damage_taken": 0
+                }
+            }
+        },
+        {
+            "turn": 3,
+            "active_player": "P1",
+            "players": {
+                "P1": {
+                    "lands_played": 1,
+                    "land_drop_rating": "good",
+                    "cards_drawn": 1,
+                    "spells_cast": 0,
+                    "abilities_activated": 0,
+                    "land_count": 3,
+                    "available_mana": 2,
+                    "life": 20,
+                    "cards_in_hand": 5,
+                    "creatures_on_battlefield": 1,
+                    "permanents_on_battlefield": 4,
+                    "damage_dealt": 1,
+                    "damage_taken": 0
+                },
+                "P2": {
+                    "lands_played": 1,
+                    "land_drop_rating": "good",
+                    "cards_drawn": 1,
+                    "spells_cast": 0,
+                    "abilities_activated": 0,
+                    "land_count": 2,
+                    "available_mana": 2,
+                    "life": 19,
+                    "cards_in_hand": 6,
+                    "creatures_on_battlefield": 0,
+                    "permanents_on_battlefield": 2,
+                    "damage_dealt": 0,
+                    "damage_taken": 1
+                }
+            }
+        }
+    ],
+    "game_summary": {
+        "total_turns": 6,
+        "duration_seconds": 240,
+        "winner": "P1",
+        "win_condition": "life_zero",
+        "players": {
+            "P1": {
+                "total_cards_drawn": 5,
+                "card_draw_rate": 0.83,
+                "total_spells_cast": 4,
+                "spell_velocity": 0.67,
+                "total_abilities_activated": 0,
+                "missed_land_drops": 1,
+                "total_lands_played": 5,
+                "peak_mana": 5,
+                "total_damage_dealt": 20,
+                "total_damage_received": 0,
+                "total_creatures_played": 2,
+                "starting_life": 20,
+                "ending_life": 20,
+                "life_delta": 0,
+                "total_counters_placed": 0
+            },
+            "P2": {
+                "total_cards_drawn": 6,
+                "card_draw_rate": 1.0,
+                "total_spells_cast": 2,
+                "spell_velocity": 0.33,
+                "total_abilities_activated": 0,
+                "missed_land_drops": 0,
+                "total_lands_played": 6,
+                "peak_mana": 6,
+                "total_damage_dealt": 0,
+                "total_damage_received": 20,
+                "total_creatures_played": 0,
+                "starting_life": 20,
+                "ending_life": 0,
+                "life_delta": -20,
+                "total_counters_placed": 0
+            }
+        }
+    }
 }

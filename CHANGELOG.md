@@ -5,6 +5,33 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-03-28
+
+### Fixed
+- **Replay Schema** — Brought `replay-schema.json` into full parity with v1.5.0+ spec:
+  - Added `spec_version`, `events`, `learning_markers`, `per_turn_summary`,
+    `game_summary` top-level properties
+  - Backward compatibility: both `events` (v1.5.0+) and `log_l1` (pre-v1.5.0) accepted;
+    neither is strictly required so parsers can handle both key names
+  - Extended `PlayerMeta` with `deck_link`, `is_ai`, `player_type`, `starting_life`
+  - Extended `CardDefinition` with `oracle_text`, `power`, `toughness`, `subtypes`
+  - Added `DISCARD` to `L1Event.type` enum
+  - Added `"unknown"` to `win_condition` enum
+  - Added `LearningMarker`, `LearningMarkerSnapshot`, `PerTurnSummary`,
+    `PerTurnPlayerStats`, `GameSummary`, `GameSummaryPlayerStats` definitions
+- **Specification** — Added missing event data schemas for: `PLAY_LAND`, `ACTIVATE`,
+  `TRIGGER`, `TAP`, `COUNTERS`, `DECLARE_ATTACKERS`, `DECLARE_BLOCKERS`, `DISCARD`,
+  `PASS_PRIORITY`, `CHOOSE`, `STATE_BASED`, `RANDOM`
+- **Specification** — Fixed `log_l1` references to `events` in §7, §10, §11
+- **Specification** — Added `DISCARD` to player decision event type table
+- **Specification** — Added `unknown` to win condition values table
+- **Example** — Updated `simple-game.json` from v1.1.0 to v1.5.0:
+  - Uses `events` key, includes `spec_version`, `game_start`, `game_summary`,
+    `per_turn_summary`, `learning_markers` sections
+  - Extended card_index entries with `oracle_text`, `power`, `toughness`, `subtypes`
+  - Added `GAME_START` and `ACTIVE_PLAYER_CHANGE` events
+  - Extended player metadata with `deck_link`, `is_ai`, `player_type`, `starting_life`
+
 ## [1.6.0] - 2026-03-11
 
 ### Added

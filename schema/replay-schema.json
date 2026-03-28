@@ -4,7 +4,7 @@
     "title": "MTG Replay Notation",
     "description": "Schema for MTG Replay & Learning Notation v1.6.0",
     "type": "object",
-    "required": ["format", "version", "meta", "seed", "card_index", "initial_state", "log_l1"],
+    "required": ["format", "version", "meta", "seed", "card_index", "initial_state"],
     "properties": {
         "format": {
             "type": "string",
@@ -15,6 +15,11 @@
             "type": "string",
             "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
             "description": "Semantic version of the format"
+        },
+        "spec_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "description": "Spec version this file conforms to (v1.5.0+). May differ from version."
         },
         "meta": {
             "$ref": "#/definitions/ReplayMeta"
@@ -37,12 +42,19 @@
         "initial_state": {
             "$ref": "#/definitions/GameState"
         },
+        "events": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/L1Event"
+            },
+            "description": "Level 1 event log (v1.5.0+ key name; replaces log_l1)"
+        },
         "log_l1": {
             "type": "array",
             "items": {
                 "$ref": "#/definitions/L1Event"
             },
-            "description": "Level 1 event log"
+            "description": "Level 1 event log (pre-v1.5.0 key name; use events for new files)"
         },
         "views_l2": {
             "type": "array",
@@ -50,6 +62,24 @@
                 "$ref": "#/definitions/L2Unit"
             },
             "description": "Level 2 learning units"
+        },
+        "learning_markers": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/LearningMarker"
+            },
+            "description": "Quick-access index of player-placed game state bookmarks (v1.3.0+)"
+        },
+        "per_turn_summary": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/PerTurnSummary"
+            },
+            "description": "Pre-computed per-turn statistics (v1.5.0+)"
+        },
+        "game_summary": {
+            "$ref": "#/definitions/GameSummary",
+            "description": "Pre-computed game-wide statistics (v1.5.0+)"
         },
         "decklist": {
             "type": "object",
@@ -89,7 +119,7 @@
                 },
                 "win_condition": {
                     "type": "string",
-                    "enum": ["life_zero", "commander_damage", "decked", "poison", "concession", "alternate_win", "draw"],
+                    "enum": ["life_zero", "commander_damage", "decked", "poison", "concession", "alternate_win", "draw", "unknown"],
                     "description": "How the game ended"
                 },
                 "conceded": {
@@ -124,6 +154,23 @@
                     "type": "string",
                     "pattern": "^[a-f0-9]{16}$",
                     "description": "SHA-256 based deck identifier (16 hex chars)"
+                },
+                "deck_link": {
+                    "type": ["string", "null"],
+                    "description": "URL to deck page with revision anchor (v1.4.0+). Null for AI players."
+                },
+                "is_ai": {
+                    "type": "boolean",
+                    "description": "Whether this player is an AI (v1.5.0+)"
+                },
+                "player_type": {
+                    "type": "string",
+                    "enum": ["Human", "AI"],
+                    "description": "Player type: Human or AI (v1.5.0+)"
+                },
+                "starting_life": {
+                    "type": "integer",
+                    "description": "Starting life total for this player (v1.5.0+)"
                 }
             }
         },
@@ -199,7 +246,24 @@
                 },
                 "oracle_id": {
                     "type": "string",
-                    "description": "Scryfall Oracle ID"
+                    "description": "Scryfall Oracle ID or CardName|SET|CollectorNum identifier"
+                },
+                "oracle_text": {
+                    "type": "string",
+                    "description": "Full rules text of the card"
+                },
+                "power": {
+                    "type": "string",
+                    "description": "Power for creatures (e.g. '3', '*')"
+                },
+                "toughness": {
+                    "type": "string",
+                    "description": "Toughness for creatures (e.g. '2', '*')"
+                },
+                "subtypes": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Creature types, land types, etc."
                 }
             }
         },
@@ -334,7 +398,7 @@
                     "enum": [
                         "CAST", "ACTIVATE", "PLAY_LAND", "DECLARE_ATTACKERS", 
                         "DECLARE_BLOCKERS", "PASS_PRIORITY", "MULLIGAN", "CHOOSE",
-                        "LEARNING_MARKER",
+                        "DISCARD", "LEARNING_MARKER",
                         "PUT_ON_STACK", "TRIGGER", "RESOLVE", "MOVE", "DAMAGE",
                         "LIFE", "COUNTERS", "TAP", "PHASE_CHANGE", "RESOURCES",
                         "STATE_BASED", "RANDOM",
@@ -477,6 +541,291 @@
                 },
                 "teaching_notes": {
                     "type": "string"
+                }
+            }
+        },
+        "LearningMarker": {
+            "type": "object",
+            "required": ["marker_id", "event_index", "t", "player", "label", "category"],
+            "description": "Quick-access summary of a player-placed game state bookmark (v1.3.0+)",
+            "properties": {
+                "marker_id": {
+                    "type": "string",
+                    "pattern": "^lm-[0-9]+$",
+                    "description": "Unique marker identifier (lm- prefix + sequential number)"
+                },
+                "event_index": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "L1 event index for direct lookup"
+                },
+                "t": {
+                    "type": "string",
+                    "description": "Time marker of the bookmarked moment"
+                },
+                "player": {
+                    "type": "string",
+                    "description": "Player who placed the marker"
+                },
+                "label": {
+                    "type": "string",
+                    "description": "Player-written description or question"
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["decision_review", "mistake", "turning_point", "interesting_interaction", "sideboard_note", "general"],
+                    "description": "Classification of the marker"
+                },
+                "created_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp when marker was placed"
+                },
+                "snapshot": {
+                    "$ref": "#/definitions/LearningMarkerSnapshot",
+                    "description": "Lightweight game state at the marked moment"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Extended free-form notes (can be added/edited after the game)"
+                }
+            }
+        },
+        "LearningMarkerSnapshot": {
+            "type": "object",
+            "description": "Lightweight game state snapshot for a learning marker",
+            "properties": {
+                "turn": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Current turn number"
+                },
+                "phase": {
+                    "type": "string",
+                    "description": "Current phase"
+                },
+                "active_player": {
+                    "type": "string",
+                    "description": "Who is the active player"
+                },
+                "life_totals": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "Life totals for all players"
+                },
+                "cards_in_hand": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "Hand sizes per player"
+                },
+                "battlefield_count": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "Number of permanents per player"
+                },
+                "stack_empty": {
+                    "type": "boolean",
+                    "description": "Whether the stack is empty"
+                }
+            }
+        },
+        "PerTurnSummary": {
+            "type": "object",
+            "required": ["turn", "active_player", "players"],
+            "description": "Pre-computed statistics for a single turn (v1.5.0+)",
+            "properties": {
+                "turn": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Turn number"
+                },
+                "active_player": {
+                    "type": "string",
+                    "description": "Active player for this turn"
+                },
+                "players": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/PerTurnPlayerStats"
+                    },
+                    "description": "Per-player stats for this turn"
+                }
+            }
+        },
+        "PerTurnPlayerStats": {
+            "type": "object",
+            "description": "Per-player statistics for a single turn",
+            "properties": {
+                "lands_played": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of lands played this turn"
+                },
+                "land_drop_rating": {
+                    "type": "string",
+                    "enum": ["bad", "good", "super"],
+                    "description": "bad (0 lands), good (1 land), super (2+ lands)"
+                },
+                "cards_drawn": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Cards drawn this turn"
+                },
+                "spells_cast": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Spells cast this turn"
+                },
+                "abilities_activated": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Abilities activated this turn"
+                },
+                "land_count": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total lands on battlefield at end of turn"
+                },
+                "available_mana": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Available mana at end of turn"
+                },
+                "life": {
+                    "type": "integer",
+                    "description": "Life total at end of turn"
+                },
+                "cards_in_hand": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Hand size at end of turn"
+                },
+                "creatures_on_battlefield": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Creatures on battlefield at end of turn"
+                },
+                "permanents_on_battlefield": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total permanents on battlefield at end of turn"
+                },
+                "damage_dealt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total damage dealt this turn"
+                },
+                "damage_taken": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total damage taken this turn"
+                }
+            }
+        },
+        "GameSummary": {
+            "type": "object",
+            "description": "Pre-computed game-wide statistics (v1.5.0+)",
+            "properties": {
+                "total_turns": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total number of turns in the game"
+                },
+                "duration_seconds": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Game duration in seconds"
+                },
+                "winner": {
+                    "type": ["string", "null"],
+                    "description": "Winning player ID"
+                },
+                "win_condition": {
+                    "type": "string",
+                    "description": "How the game was won"
+                },
+                "players": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/GameSummaryPlayerStats"
+                    },
+                    "description": "Per-player game-wide stats"
+                }
+            }
+        },
+        "GameSummaryPlayerStats": {
+            "type": "object",
+            "description": "Per-player game-wide statistics",
+            "properties": {
+                "total_cards_drawn": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total cards drawn during the game"
+                },
+                "card_draw_rate": {
+                    "type": "number",
+                    "description": "Cards drawn per turn (average)"
+                },
+                "total_spells_cast": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total spells cast"
+                },
+                "spell_velocity": {
+                    "type": "number",
+                    "description": "Spells cast per turn (average)"
+                },
+                "total_abilities_activated": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total abilities activated"
+                },
+                "missed_land_drops": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Turns where no land was played"
+                },
+                "total_lands_played": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total lands played"
+                },
+                "peak_mana": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Maximum available mana during the game"
+                },
+                "total_damage_dealt": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total damage dealt"
+                },
+                "total_damage_received": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total damage received"
+                },
+                "total_creatures_played": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total creatures played"
+                },
+                "starting_life": {
+                    "type": "integer",
+                    "description": "Life total at game start"
+                },
+                "ending_life": {
+                    "type": "integer",
+                    "description": "Life total at game end"
+                },
+                "life_delta": {
+                    "type": "integer",
+                    "description": "Net life change (ending - starting)"
+                },
+                "total_counters_placed": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Total counters placed on permanents"
                 }
             }
         },
