@@ -13,6 +13,7 @@
 - **1.2.1** (February 2026): Added `ACTIVE_PLAYER_CHANGE` event for turn transitions, major impact turn/play identification guide
 - **1.3.0** (February 2026): Added `LEARNING_MARKER` event and `learning_markers` top-level section for player-placed game state bookmarks
 - **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
+- **1.6.1** (March 2026): Added optional scenario notation for rules clarifications and combo outcome analysis
 - **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
 
 ---
@@ -59,6 +60,9 @@ A replay file contains:
     "learning_markers": [
         /* Player-placed bookmarks for review */
     ],
+    "scenario": {
+        /* Optional scenario primer for rules questions and combo outcome analysis */
+    },
     "per_turn_summary": [
         /* Pre-computed per-turn statistics (v1.5.0+) */
     ],
@@ -294,6 +298,41 @@ The `game_start` section captures pre-game decisions:
 |-------|-------------|
 | `player` | Player ID |
 | `starting_hand_size` | Initial hand size (usually 7) |
+
+### 4.6 Scenario Notation (v1.6.1+)
+
+For rules clarification and card-combination outcome analysis, replay files may include an optional top-level `scenario` block.
+
+The `scenario` block is primarily descriptive and may omit full game event logs while preserving a playable initial state for simulation engines.
+
+```json
+{
+    "scenario": {
+        "scenario_id": "scn-001",
+        "title": "Trample + Lifelink Attack Interaction",
+        "description": "Combat scenario to verify how damage assignment works when attacking with a creature that has both trample and lifelink against a blocker.",
+        "purpose": "rules_clarification",
+        "question": "Does the attacking controller gain life equal to damage dealt to both blocker and defending player?",
+        "cards_involved": ["Tarmogoyf", "Llanowar Elves"],
+        "expected_outcome": "Attacking player gains life equal to total damage dealt by the attacker (including trample damage to player).",
+        "notes": "This scenario may be used by analysis tools to compute final life totals and validate game engine correctness."
+    }
+}
+```
+
+**Scenario fields:**
+
+- `scenario_id` — Unique identifier for the scenario
+- `title` — Short, human-readable title
+- `description` — Detailed explanation of the interaction being tested
+- `purpose` — Category of scenario:
+  - `rules_clarification`, `outcome_calculation`, `combo_analysis`, `general`
+- `question` — Specific question or hypothesis to resolve
+- `cards_involved` — Optional array of card names or card_index references
+- `expected_outcome` — Optional expected result summary
+- `notes` — Optional freeform additional context
+
+This is an optional extension; standard game replay fields (`meta`, `initial_state`, `events`) continue to work unchanged.
 | `mulligans_taken` | Number of times player mulliganed |
 | `final_hand_size` | Cards in hand after all mulligans |
 | `cards_to_bottom` | Cards put on bottom (London mulligan rule) |

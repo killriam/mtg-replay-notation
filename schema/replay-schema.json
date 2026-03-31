@@ -70,6 +70,10 @@
             },
             "description": "Quick-access index of player-placed game state bookmarks (v1.3.0+)"
         },
+        "scenario": {
+            "$ref": "#/definitions/ReplayScenario",
+            "description": "Optional scenario specification for rules clarification and combo outcome analysis (v1.6.1+)"
+        },
         "per_turn_summary": {
             "type": "array",
             "items": {
@@ -719,6 +723,49 @@
                     "type": "integer",
                     "minimum": 0,
                     "description": "Total damage taken this turn"
+                }
+            }
+        },
+        "ReplayScenario": {
+            "type": "object",
+            "required": ["scenario_id", "title", "description", "purpose"],
+            "description": "Optional scenario specification for rules clarification and combo outcome analysis",
+            "properties": {
+                "scenario_id": {
+                    "type": "string",
+                    "description": "Unique scenario identifier"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short title for the scenario"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Detailed description of the interaction being tested"
+                },
+                "purpose": {
+                    "type": "string",
+                    "enum": ["rules_clarification", "outcome_calculation", "combo_analysis", "general"],
+                    "description": "Reason this scenario is recorded"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Specific question the scenario is intended to answer"
+                },
+                "cards_involved": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "description": "Card names or card_index references used by the scenario"
+                },
+                "expected_outcome": {
+                    "type": "string",
+                    "description": "Optional expected result summary"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Optional freeform notes"
                 }
             }
         },

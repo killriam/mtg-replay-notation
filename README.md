@@ -153,6 +153,7 @@ MIT License — see [LICENSE](./LICENSE)
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.6.2 | 2026-03-31 | Added optional scenario notation for rules clarification and combo outcome analysis |
 | 1.6.0 | 2026-03-11 | Added Commander Decklist Notation: deck sections, artwork IDs, mechanic roles, mulligan scoring, combos |
 | 1.5.0 | 2026-02-22 | Renamed log_l1 to events; spec_version; per_turn_summary; game_summary; DRAW/GAME_START events |
 | 1.1.0 | 2026-02-08 | Added win_condition, deck_name, RESOURCES event, card_name in events |

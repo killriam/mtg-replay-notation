@@ -5,6 +5,14 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-03-31
+
+### Added
+- **Scenario Notation** — Optional top-level `scenario` block for rules clarification and combo outcome analysis.
+- **Schema** — Added `ReplayScenario` definition and `scenario` root property in `schema/replay-schema.json` (v1.6.1+).
+- **Spec** — Added documentation of scenario format in `spec/MTG-REPLAY-NOTATION.md`.
+- **Example** — Added `examples/scenario.json`.
+
 ## [1.6.1] - 2026-03-28
 
 ### Fixed

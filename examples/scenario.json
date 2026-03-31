@@ -1,0 +1,119 @@
+{
+    "format": "mtg-replay",
+    "version": "1.6.1",
+    "spec_version": "1.6.1",
+    "meta": {
+        "game_id": "scenario-example-001",
+        "timestamp": "2026-03-30T12:00:00Z",
+        "game_type": "Scenario",
+        "players": {
+            "P1": {
+                "name": "Scenario Tester",
+                "deck_name": "Trample Lifelink Test",
+                "deck_hash": "0000000000000000",
+                "deck_link": null,
+                "is_ai": false,
+                "player_type": "Human",
+                "starting_life": 20
+            },
+            "P2": {
+                "name": "Defender",
+                "deck_name": "Blocker Test",
+                "deck_hash": "0000000000000000",
+                "deck_link": null,
+                "is_ai": false,
+                "player_type": "Human",
+                "starting_life": 20
+            }
+        },
+        "winner": null,
+        "win_condition": "unknown",
+        "conceded": false,
+        "turns": 0,
+        "duration_seconds": 0
+    },
+    "scenario": {
+        "scenario_id": "scn-001",
+        "title": "Trample + Lifelink Interaction",
+        "description": "Testing damage assignment and life gain for a trample + lifelink attacker against a blocker.",
+        "purpose": "rules_clarification",
+        "question": "Does the attacking player gain life equal to the total damage assigned (blocker + trample to player)?",
+        "cards_involved": ["Ghor-Clan Wrecker", "Grizzly Bears"],
+        "expected_outcome": "Attacking player gains life equal to total damage dealt by the attacker (including trample damage to defending player).",
+        "notes": "No full game events are required; an engine can instantiate the initial state and resolve the scenario."    
+    },
+    "seed": 1234567890,
+    "card_index": {
+        "Ghor-Clan Wrecker": {
+            "name": "Ghor-Clan Wrecker",
+            "cost": "{4}{R}",
+            "type": "Creature — Beast",
+            "oracle_id": "12345678-1234-1234-1234-123456789012",
+            "oracle_text": "Trample\nWhenever Ghor-Clan Wrecker attacks, it gets +5/+0 until end of turn.",
+            "power": "4",
+            "toughness": "4"
+        },
+        "Grizzly Bears": {
+            "name": "Grizzly Bears",
+            "cost": "{1}{G}",
+            "type": "Creature — Bear",
+            "oracle_id": "abcdef12-3456-7890-abcd-ef1234567890",
+            "oracle_text": "",
+            "power": "2",
+            "toughness": "2"
+        }
+    },
+    "initial_state": {
+        "turn": 1,
+        "phase": "COMBAT",
+        "step": "DECLARE_ATTACKERS",
+        "priority": null,
+        "active_player": "P1",
+        "players": {
+            "P1": {
+                "life": 20,
+                "mana_pool": [],
+                "counters": {},
+                "lands_played_this_turn": 1,
+                "max_hand_size": 7
+            },
+            "P2": {
+                "life": 20,
+                "mana_pool": [],
+                "counters": {},
+                "lands_played_this_turn": 0,
+                "max_hand_size": 7
+            }
+        },
+        "zones": {
+            "battlefield": ["c1", "c2"],
+            "stack": [],
+            "exile": [],
+            "P1:hand": [],
+            "P1:library": { "count": 53 },
+            "P1:graveyard": [],
+            "P2:hand": [],
+            "P2:library": { "count": 53 },
+            "P2:graveyard": []
+        },
+        "objects": {
+            "c1": {
+                "card_ref": "Ghor-Clan Wrecker",
+                "controller": "P1",
+                "owner": "P1",
+                "zone": "battlefield",
+                "tapped": false,
+                "counters": {}
+            },
+            "c2": {
+                "card_ref": "Grizzly Bears",
+                "controller": "P2",
+                "owner": "P2",
+                "zone": "battlefield",
+                "tapped": false,
+                "counters": {}
+            }
+        }
+    },
+    "events": []
+}
