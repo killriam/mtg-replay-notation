@@ -70,9 +70,13 @@
             },
             "description": "Quick-access index of player-placed game state bookmarks (v1.3.0+)"
         },
+        "mode": {
+            "type": "string",
+            "enum": ["game", "scenario"],
+            "description": "Replay mode: full game (default) or scenario-based analysis"
+        },
         "scenario": {
-            "$ref": "#/definitions/ReplayScenario",
-            "description": "Optional scenario specification for rules clarification and combo outcome analysis (v1.6.1+)"
+            "$ref": "#/definitions/ScenarioDefinition"
         },
         "per_turn_summary": {
             "type": "array",
@@ -604,6 +608,40 @@
                     "minimum": 0,
                     "description": "Current turn number"
                 },
+                "scenario": {
+                    "$ref": "#/definitions/ScenarioDefinition"
+                }
+            }
+        },
+        "ScenarioDefinition": {
+            "type": "object",
+            "required": ["description", "purpose"],
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "High-level description of the scenario"
+                },
+                "purpose": {
+                    "type": "string",
+                    "enum": ["rules_clarification", "combo_outcome", "interaction_check", "general"],
+                    "description": "Intent behind the scenario"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "Specific question for judges or analysis engines"
+                },
+                "expected_outcomes": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Potential result(s) or conclusion expected from the scenario"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Additional context or rationales for the scenario"
+                }
+            }
+        },
+        "PerTurnSummary": {
                 "phase": {
                     "type": "string",
                     "description": "Current phase"
@@ -723,49 +761,6 @@
                     "type": "integer",
                     "minimum": 0,
                     "description": "Total damage taken this turn"
-                }
-            }
-        },
-        "ReplayScenario": {
-            "type": "object",
-            "required": ["scenario_id", "title", "description", "purpose"],
-            "description": "Optional scenario specification for rules clarification and combo outcome analysis",
-            "properties": {
-                "scenario_id": {
-                    "type": "string",
-                    "description": "Unique scenario identifier"
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Short title for the scenario"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Detailed description of the interaction being tested"
-                },
-                "purpose": {
-                    "type": "string",
-                    "enum": ["rules_clarification", "outcome_calculation", "combo_analysis", "general"],
-                    "description": "Reason this scenario is recorded"
-                },
-                "question": {
-                    "type": "string",
-                    "description": "Specific question the scenario is intended to answer"
-                },
-                "cards_involved": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Card names or card_index references used by the scenario"
-                },
-                "expected_outcome": {
-                    "type": "string",
-                    "description": "Optional expected result summary"
-                },
-                "notes": {
-                    "type": "string",
-                    "description": "Optional freeform notes"
                 }
             }
         },

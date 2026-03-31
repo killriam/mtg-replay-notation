@@ -13,8 +13,8 @@
 - **1.2.1** (February 2026): Added `ACTIVE_PLAYER_CHANGE` event for turn transitions, major impact turn/play identification guide
 - **1.3.0** (February 2026): Added `LEARNING_MARKER` event and `learning_markers` top-level section for player-placed game state bookmarks
 - **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
-- **1.6.1** (March 2026): Added optional scenario notation for rules clarifications and combo outcome analysis
 - **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
+- **1.6.0** (March 2026): Added scenario replay mode (`mode: "scenario"` + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis
 
 ---
 
@@ -60,14 +60,19 @@ A replay file contains:
     "learning_markers": [
         /* Player-placed bookmarks for review */
     ],
-    "scenario": {
-        /* Optional scenario primer for rules questions and combo outcome analysis */
-    },
     "per_turn_summary": [
         /* Pre-computed per-turn statistics (v1.5.0+) */
     ],
     "game_summary": {
         /* Pre-computed game-wide statistics (v1.5.0+) */
+    },
+    "mode": "game", /* "scenario" for interactive/rules-check scenarios (v1.6.0+) */
+    "scenario": {
+        "description": "P1 has both Card A and Card B in play and attacks with X; does the replacement effect apply before damage assignment?",
+        "purpose": "rules_clarification",
+        "question": "Does Card A's replacement effect interact with Card B to prevent combat damage this turn?",
+        "expected_outcomes": ["Yes, damage is prevented", "No, damage is assigned normally"],
+        "notes": "Designed to validate edge-case ruling for layered continuous effects in combat damage step."
     }
 }
 ```
@@ -298,46 +303,65 @@ The `game_start` section captures pre-game decisions:
 |-------|-------------|
 | `player` | Player ID |
 | `starting_hand_size` | Initial hand size (usually 7) |
-
-### 4.6 Scenario Notation (v1.6.1+)
-
-For rules clarification and card-combination outcome analysis, replay files may include an optional top-level `scenario` block.
-
-The `scenario` block is primarily descriptive and may omit full game event logs while preserving a playable initial state for simulation engines.
-
-```json
-{
-    "scenario": {
-        "scenario_id": "scn-001",
-        "title": "Trample + Lifelink Attack Interaction",
-        "description": "Combat scenario to verify how damage assignment works when attacking with a creature that has both trample and lifelink against a blocker.",
-        "purpose": "rules_clarification",
-        "question": "Does the attacking controller gain life equal to damage dealt to both blocker and defending player?",
-        "cards_involved": ["Tarmogoyf", "Llanowar Elves"],
-        "expected_outcome": "Attacking player gains life equal to total damage dealt by the attacker (including trample damage to player).",
-        "notes": "This scenario may be used by analysis tools to compute final life totals and validate game engine correctness."
-    }
-}
-```
-
-**Scenario fields:**
-
-- `scenario_id` — Unique identifier for the scenario
-- `title` — Short, human-readable title
-- `description` — Detailed explanation of the interaction being tested
-- `purpose` — Category of scenario:
-  - `rules_clarification`, `outcome_calculation`, `combo_analysis`, `general`
-- `question` — Specific question or hypothesis to resolve
-- `cards_involved` — Optional array of card names or card_index references
-- `expected_outcome` — Optional expected result summary
-- `notes` — Optional freeform additional context
-
-This is an optional extension; standard game replay fields (`meta`, `initial_state`, `events`) continue to work unchanged.
 | `mulligans_taken` | Number of times player mulliganed |
 | `final_hand_size` | Cards in hand after all mulligans |
 | `cards_to_bottom` | Cards put on bottom (London mulligan rule) |
 
 ---
+
+## 4.6 Scenario Analysis Mode (v1.6.0+)
+
+Scenario mode is an additional notation style for describing focused game states and interactions without requiring a full competitive match. It is useful for rules clarification and combo outcome analysis.
+
+- `mode`: `"scenario"` (optional; if omitted, defaults to `"game"`)
+- `scenario`: structured scenario metadata object
+
+Required fields in `scenario`:
+- `description`: human-readable summary of the playing situation
+- `purpose`: one of `"rules_clarification"`, `"combo_outcome"`, `"interaction_check"`, or `"general"`
+
+Optional fields in `scenario`:
+- `question`: the specific ruling/analysis prompt
+- `expected_outcomes`: list of anticipated answers or possible results
+- `notes`: additional context for judges, rules engines, or AI analysis
+
+Example:
+
+```json
+{
+  "format": "mtg-replay",
+  "version": "1.6.0",
+  "spec_version": "1.6.0",
+  "mode": "scenario",
+  "meta": {
+    "game_id": "scenario-12345",
+    "timestamp": "2026-03-31T12:00:00Z",
+    "game_type": "Scenario",
+    "players": {
+      "P1": {"name": "Test Player", "is_ai": false, "player_type": "Human", "starting_life": 20}
+    }
+  },
+  "scenario": {
+    "description": "P1 controls Hullbreacher and multiple Counterspells in hand at the end of opponent's draw step.",
+    "purpose": "rules_clarification",
+    "question": "How many cards does P1 draw when opponent attempts to draw for turn and Spellstutter Sprite triggers?",
+    "expected_outcomes": ["0", "1", "2"],
+    "notes": "Use this to validate delayed replacement effects and Gitrog interaction rules."
+  },
+  "card_index": {
+    "Hullbreacher": {"name": "Hullbreacher", "type": "Creature - Elf", "oracle_text": "..."},
+    "Spellstutter Sprite": {"name": "Spellstutter Sprite", "type": "Creature - Faerie Wizard", "oracle_text": "..."}
+  },
+  "initial_state": {
+    "turn": 5,
+    "phase": "DRAW",
+    "players": {
+      "P1": {"life": 20, "hand": ["c1", "c2"]},
+      "P2": {"life": 18}
+    }
+  }
+}
+```
 
 ## 5. Card Index
 
