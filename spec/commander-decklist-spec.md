@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.0.0
+## Companion Specification v1.1.0
 
 **Status:** Stable
 **Published:** March 2026
@@ -54,7 +54,7 @@ A decklist file contains:
         /* Considered but not included cards */
     ],
     "deck_rules": {
-        /* Mulligan rules and combo declarations */
+        /* Mulligan rules, combo declarations, scenarios, and simulation config */
     }
 }
 ```
@@ -323,7 +323,9 @@ and used by replay analysis and coaching tools.
     "deck_rules": {
         "mulligan": { /* ... */ },
         "combos": [ /* ... */ ],
-        "dont_combos": [ /* ... */ ]
+        "dont_combos": [ /* ... */ ],
+        "scenarios": [ /* ... */ ],
+        "simulation": { /* ... */ }
     }
 }
 ```
@@ -529,6 +531,184 @@ flag situations where both cards are in play simultaneously.
 | `reason` | string | **Yes** | Explanation of why these cards conflict |
 | `severity` | string | No | `"critical"` \| `"major"` \| `"minor"` (default: `"major"`) |
 
+### 6.4 Scenarios
+
+The optional `scenarios` array documents strategic game states captured by the deck
+builder. Two sub-formats are supported: **hand-based** (opening hand + drawn turns) and
+**precondition-based** (arbitrary game state defined by conditions).
+
+#### 6.4.1 Scenario Types
+
+| `type` | Description |
+|--------|-------------|
+| `best_starting_hand` | 7-card opening hand + 3 drawn turns (guided wizard) |
+| `perfect_game` | 7-card opening hand + 10 drawn turns (full strategic ideal) |
+| `mid_game` | Arbitrary game state defined by preconditions |
+| `free_build` | Freeform board state with optional preconditions and focus |
+
+#### 6.4.2 Hand-Based Scenario Format
+
+Used for `best_starting_hand` and `perfect_game` types. Documents which cards were in
+the opening hand and what was drawn and played each subsequent turn.
+
+```json
+{
+    "scenarios": [
+        {
+            "id": "scenario_best_hand_1",
+            "type": "best_starting_hand",
+            "name": "Ideal Doubling Season Opener",
+            "opening_hand": [
+                "Sol Ring",
+                "Arcane Signet",
+                "Command Tower",
+                "Forest",
+                "Plains",
+                "Doubling Season",
+                "Atraxa, Praetors' Voice"
+            ],
+            "turns": [
+                {
+                    "turn": 1,
+                    "drawn": "Smothering Tithe",
+                    "played": ["Sol Ring", "Command Tower"]
+                },
+                {
+                    "turn": 2,
+                    "drawn": "Rhystic Study",
+                    "played": ["Arcane Signet", "Forest"]
+                },
+                {
+                    "turn": 3,
+                    "drawn": "Deepglow Skate",
+                    "played": ["Plains", "Doubling Season"]
+                }
+            ]
+        }
+    ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | **Yes** | Unique identifier for this scenario within the deck |
+| `type` | string | **Yes** | One of the four scenario types (see §6.4.1) |
+| `name` | string | **Yes** | Human-readable scenario name |
+| `opening_hand` | array | For hand-based | Card names in the opening hand (in draw order) |
+| `turns` | array | No | Drawn and played cards per turn (see below) |
+
+**Turn entry fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `turn` | integer | **Yes** | Turn number (1 = first turn of the game) |
+| `drawn` | string | **Yes** | Card name drawn at the start of this turn |
+| `played` | array | No | Card names played this turn, in cast order |
+
+#### 6.4.3 Precondition-Based Scenario Format
+
+Used for `mid_game` and `free_build` types. Describes the game state conditions under
+which a scenario applies rather than documenting a specific card sequence.
+
+```json
+{
+    "scenarios": [
+        {
+            "id": "scenario_turn4_engine",
+            "type": "mid_game",
+            "name": "Turn 4 Counter Engine Active",
+            "preconditions": {
+                "description": "Turn 4+, commander in play, 6 mana available, 2 ramp pieces on board",
+                "mana_available": 6,
+                "mana_colors": ["W", "U", "B", "G"],
+                "turn_number": 4,
+                "min_hand_size": 2,
+                "zone_requirements": [
+                    {
+                        "zone": "battlefield",
+                        "mechanic_groups": ["ramp"],
+                        "min_count": 2
+                    },
+                    {
+                        "zone": "battlefield",
+                        "card_names": ["Atraxa, Praetors' Voice"],
+                        "min_count": 1
+                    }
+                ]
+            },
+            "focus": {
+                "mechanic_groups": ["counters", "proliferate"],
+                "card_names": ["Doubling Season", "Deepglow Skate"],
+                "description": "Demonstrates how the counter engine doubles with Doubling Season"
+            }
+        }
+    ]
+}
+```
+
+**Preconditions fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | string | No | Human-readable summary of required game state |
+| `mana_available` | integer | No | Total mana available (any color) |
+| `mana_colors` | array | No | Specific mana colors required (WUBRG letters) |
+| `turn_number` | integer | No | Turn number this scenario typically applies to |
+| `min_hand_size` | integer | No | Minimum number of cards in hand |
+| `zone_requirements` | array | No | Per-zone card or mechanic requirements (see below) |
+
+**Zone requirement fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `zone` | string | **Yes** | One of: `battlefield`, `hand`, `graveyard`, `commandZone`, `library`, `exile` |
+| `mechanic_groups` | array | No | Deck mechanic group keys satisfying this requirement |
+| `card_names` | array | No | Specific card names required in this zone |
+| `min_count` | integer | No | Minimum matching cards required (default: count of listed items) |
+
+Either `mechanic_groups` or `card_names` (or both) must be present in a zone requirement.
+
+**Focus fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mechanic_groups` | array | No | Deck mechanic group keys this scenario demonstrates |
+| `card_names` | array | No | Specific card names that are focal in this scenario |
+| `description` | string | No | Free-text description of what the scenario demonstrates |
+
+### 6.5 Forge Simulation Config
+
+The optional `simulation` object configures how the Forge AI simulation tool should
+use this deck when running simulations. Forge consumes `.dck` plain-text decklists;
+this config is a companion layer that carries simulation parameters separately.
+
+```json
+{
+    "deck_rules": {
+        "simulation": {
+            "target": "forge",
+            "play_order": "random",
+            "difficulty": "ultimate",
+            "starting_life": 40,
+            "use_best_starting_hand": true,
+            "use_perfect_game": false
+        }
+    }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `target` | string | **Yes** | Must be `"forge"` (reserved for future simulation targets) |
+| `play_order` | string | No | `"play"` (go first) \| `"draw"` (go second) \| `"random"` (default) |
+| `difficulty` | string | No | AI difficulty: `"easy"` \| `"medium"` \| `"hard"` \| `"ultimate"` (default) |
+| `starting_life` | integer | No | Starting life total (default: `40` for Commander) |
+| `use_best_starting_hand` | boolean | No | If `true`, Forge uses the `best_starting_hand` scenario as the opening hand |
+| `use_perfect_game` | boolean | No | If `true`, Forge uses the `perfect_game` scenario as a guided simulation seed |
+
+`use_best_starting_hand` and `use_perfect_game` require corresponding scenarios of the
+respective types to be present in the `scenarios` array (see §6.4).
+
 ---
 
 ## 7. Deck Hash
@@ -602,6 +782,14 @@ inline decklist over an external lookup.
 7. **Combo and don't-combo `id` values must be unique** within their respective arrays.
 8. **Mulligan threshold `round` values must be unique** within the `thresholds` array
    and monotonically increasing from 0.
+9. **Scenario `id` values must be unique** within the `scenarios` array.
+10. **Hand-based scenarios** (`best_starting_hand`, `perfect_game`) must include
+    `opening_hand` with 7 entries. `perfect_game` scenarios should have 10 turn entries;
+    `best_starting_hand` should have 3.
+11. **Precondition-based zone requirements** must include at least one of
+    `mechanic_groups` or `card_names`.
+12. **`use_best_starting_hand: true`** in `simulation` requires a `best_starting_hand`
+    scenario to be present; `use_perfect_game: true` requires a `perfect_game` scenario.
 
 ---
 
@@ -610,7 +798,7 @@ inline decklist over an external lookup.
 ```json
 {
     "format": "mtg-commander-decklist",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "meta": {
         "deck_id": "atraxa-superfriends-v1",
         "deck_name": "Atraxa Superfriends",
@@ -788,7 +976,62 @@ inline decklist over an external lookup.
                 "reason": "Teferi prevents opponents from casting spells at instant speed, so Rhystic Study's trigger can never be paid during the draw step sequence.",
                 "severity": "minor"
             }
-        ]
+        ],
+        "scenarios": [
+            {
+                "id": "scenario_best_hand_1",
+                "type": "best_starting_hand",
+                "name": "Ideal Doubling Season Opener",
+                "opening_hand": [
+                    "Sol Ring",
+                    "Arcane Signet",
+                    "Command Tower",
+                    "Forest",
+                    "Plains",
+                    "Doubling Season",
+                    "Atraxa, Praetors' Voice"
+                ],
+                "turns": [
+                    { "turn": 1, "drawn": "Smothering Tithe", "played": ["Sol Ring", "Command Tower"] },
+                    { "turn": 2, "drawn": "Rhystic Study", "played": ["Arcane Signet", "Forest"] },
+                    { "turn": 3, "drawn": "Deepglow Skate", "played": ["Plains", "Doubling Season"] }
+                ]
+            },
+            {
+                "id": "scenario_turn4_engine",
+                "type": "mid_game",
+                "name": "Turn 4 Counter Engine Active",
+                "preconditions": {
+                    "description": "Turn 4+, commander in play, 6 mana available, 2 ramp pieces on board",
+                    "mana_available": 6,
+                    "turn_number": 4,
+                    "zone_requirements": [
+                        {
+                            "zone": "battlefield",
+                            "mechanic_groups": ["ramp"],
+                            "min_count": 2
+                        },
+                        {
+                            "zone": "battlefield",
+                            "card_names": ["Atraxa, Praetors' Voice"],
+                            "min_count": 1
+                        }
+                    ]
+                },
+                "focus": {
+                    "mechanic_groups": ["counters", "proliferate"],
+                    "description": "Demonstrates how the counter engine activates at full speed"
+                }
+            }
+        ],
+        "simulation": {
+            "target": "forge",
+            "play_order": "random",
+            "difficulty": "ultimate",
+            "starting_life": 40,
+            "use_best_starting_hand": true,
+            "use_perfect_game": false
+        }
     }
 }
 ```
@@ -799,6 +1042,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2026-03-31 | Add §6.4 Scenarios (hand-based + precondition-based) and §6.5 Forge Simulation Config; extend `deck_rules` with `scenarios[]` and `simulation`; add validation rules 9–12 |
 | 1.0.0 | 2026-03-11 | Initial specification |
 
 ---
