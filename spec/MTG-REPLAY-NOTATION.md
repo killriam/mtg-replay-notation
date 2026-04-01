@@ -1,9 +1,9 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.5.0
+## Format Specification v1.7.0
 
-**Status:** Stable  
-**Published:** February 2026  
+**Status:** Stable
+**Published:** April 2026
 **Purpose:** Human-readable specification for understanding MTG game replay files
 
 **Version History:**
@@ -14,6 +14,8 @@
 - **1.3.0** (February 2026): Added `LEARNING_MARKER` event and `learning_markers` top-level section for player-placed game state bookmarks
 - **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
 - **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
+- **1.6.0** (March 2026): Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files
+- **1.7.0** (April 2026): Added scenario replay mode (`mode: "scenario"` + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis; added `rules_clarification` learning marker category
 
 ---
 
@@ -35,8 +37,9 @@ A replay file contains:
 ```json
 {
     "format": "mtg-replay",
-    "version": "1.5.0",
-    "spec_version": "1.5.0",
+    "version": "1.7.0",
+    "spec_version": "1.7.0",
+    "mode": "full_game",
     "meta": {
         /* Game metadata */
     },
@@ -827,7 +830,7 @@ Placed by a player to bookmark the current game state for later review:
 
 - `marker_id` — Unique marker identifier (`lm-` prefix + sequential number)
 - `label` — Player-written description or question
-- `category` — One of: `"decision_review"`, `"mistake"`, `"turning_point"`, `"interesting_interaction"`, `"sideboard_note"`, `"general"`
+- `category` — One of: `"decision_review"`, `"mistake"`, `"turning_point"`, `"interesting_interaction"`, `"rules_clarification"`, `"sideboard_note"`, `"general"`
 - `created_at` — ISO 8601 timestamp when marker was placed
 
 **Note:** This event does not affect game state or deterministic replay. It is skipped during replay execution.
@@ -1463,8 +1466,11 @@ Recorded inline in the event log when the player places a marker:
 | `mistake` | Player believes they made an error here |
 | `turning_point` | Moment the game shifted |
 | `interesting_interaction` | Notable rules or card interaction |
+| `rules_clarification` | A rules question arose that needs clarification — e.g. layer ordering, replacement effects, timing (v1.7.0+) |
 | `sideboard_note` | Insight for sideboarding |
 | `general` | Uncategorized bookmark |
+
+A `rules_clarification` marker should include a `label` phrased as a question and may include a `notes` field with the authoritative answer and relevant Comprehensive Rules references. Viewers should display these markers with a distinct icon and optionally link to a rules engine or judge chat.
 
 **Note:** `LEARNING_MARKER` events do **not** affect game state or replay determinism. They are purely annotation events and are skipped during deterministic replay.
 
@@ -2500,7 +2506,139 @@ for the same player, consumers should prefer the inline `decklist`.
 
 ---
 
-## 18. Version History
+## 18. Scenario Replay Mode (v1.7.0+)
+
+A replay file can operate in two modes, selected by the top-level `mode` field:
+
+| Value | Description |
+|-------|-------------|
+| `"full_game"` | Default. A complete recorded game. All top-level sections apply. |
+| `"scenario"` | A focused, hand-crafted board state used to check an interaction, clarify a rule, or verify a combo outcome. |
+
+When `mode` is `"scenario"`, the file **must** include a `scenario` top-level object and the `meta`, `card_index`, and `initial_state` fields. The `events`, `game_start`, `per_turn_summary`, and `game_summary` fields are optional and are only present if the scenario includes an event sequence.
+
+### 18.1 The `scenario` Object
+
+```json
+{
+    "scenario": {
+        "type": "rules_clarification",
+        "title": "Does Deathtouch enable full trample damage assignment?",
+        "description": "Attacking player controls a 5/5 creature with Deathtouch and Trample. Defending player blocks with a 2/2. How much damage must be assigned to the blocker?",
+        "question": "How much trample damage gets through to the defending player?",
+        "answer": "Only 1 damage must be assigned to the blocker (the minimum to deal lethal, which Deathtouch reduces to 1), so 4 damage tramples through.",
+        "ruling_references": ["CR 702.2b", "CR 702.19b", "CR 702.19d"],
+        "tags": ["deathtouch", "trample", "combat", "damage-assignment"]
+    }
+}
+```
+
+**Fields:**
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `type` | yes | string | Scenario purpose — see table below |
+| `title` | yes | string | Short human-readable title |
+| `description` | no | string | Full scenario description including board state narrative |
+| `question` | no | string | The specific question being answered |
+| `answer` | no | string | The authoritative answer |
+| `ruling_references` | no | string[] | Comprehensive Rules citations (e.g. `"CR 702.2b"`) |
+| `tags` | no | string[] | Free-form keyword tags for search and filtering |
+
+**Scenario Types:**
+
+| `type` | Description |
+|--------|-------------|
+| `"interaction_check"` | Verify how two or more cards interact (e.g. replacement effect ordering) |
+| `"rules_clarification"` | Clarify a specific rule in context (e.g. trample + deathtouch, state-based actions) |
+| `"combo_outcome"` | Demonstrate the final board state after a combo resolves |
+
+### 18.2 Scenario File Structure
+
+A minimal scenario file (rules clarification, no event log):
+
+```json
+{
+    "format": "mtg-replay",
+    "version": "1.7.0",
+    "spec_version": "1.7.0",
+    "mode": "scenario",
+    "scenario": {
+        "type": "rules_clarification",
+        "title": "Does Deathtouch enable full trample damage assignment?",
+        "question": "How much trample damage gets through to the defending player?",
+        "answer": "Only 1 damage must be assigned to the blocker — Deathtouch makes any amount lethal. 4 trample damage gets through.",
+        "ruling_references": ["CR 702.2b", "CR 702.19b", "CR 702.19d"],
+        "tags": ["deathtouch", "trample", "combat"]
+    },
+    "meta": {
+        "game_id": "scenario-deathtouch-trample-001",
+        "timestamp": "2026-04-01T12:00:00Z",
+        "game_type": "Scenario",
+        "players": {
+            "P1": { "name": "Attacker", "is_ai": false, "player_type": "Human", "starting_life": 20 },
+            "P2": { "name": "Defender", "is_ai": false, "player_type": "Human", "starting_life": 20 }
+        }
+    },
+    "seed": 0,
+    "card_index": {
+        "c1": { "name": "Raging Goblin", "cost": "{R}", "type": "Creature — Goblin", "power": "5", "toughness": "5" },
+        "c2": { "name": "Grizzly Bears", "cost": "{1}{G}", "type": "Creature — Bear", "power": "2", "toughness": "2" }
+    },
+    "initial_state": {
+        "turn": 3,
+        "phase": "COMBAT",
+        "active_player": "P1",
+        "players": {
+            "P1": { "life": 20 },
+            "P2": { "life": 20 }
+        },
+        "zones": { "battlefield": ["c1", "c2"] },
+        "objects": {
+            "c1": { "card_ref": "Raging Goblin", "owner": "P1", "controller": "P1", "zone": "battlefield", "tapped": false },
+            "c2": { "card_ref": "Grizzly Bears", "owner": "P2", "controller": "P2", "zone": "battlefield", "tapped": false }
+        }
+    }
+}
+```
+
+### 18.3 Linking Scenarios to Learning Markers
+
+A `rules_clarification` learning marker placed during a full game replay can reference a scenario file for the canonical answer:
+
+```json
+{
+    "marker_id": "lm-3",
+    "event_index": 42,
+    "t": "T5.COMBAT:4",
+    "player": "P1",
+    "label": "Does Deathtouch + Trample work the way I think?",
+    "category": "rules_clarification",
+    "created_at": "2026-04-01T12:05:00Z",
+    "notes": "Answer: Yes — only 1 damage needs to be assigned to the blocker. See CR 702.2b, CR 702.19b.",
+    "snapshot": {
+        "turn": 5,
+        "phase": "COMBAT",
+        "active_player": "P1",
+        "life_totals": { "P1": 20, "P2": 14 },
+        "cards_in_hand": { "P1": 3, "P2": 4 },
+        "battlefield_count": { "P1": 2, "P2": 1 },
+        "stack_empty": true
+    }
+}
+```
+
+### 18.4 Consumers
+
+Scenario files are consumed differently from full-game replays:
+
+- **Replay viewers** — display the `initial_state` board position; show `scenario.question` and `scenario.answer` in an overlay panel; link `ruling_references` to rules lookup
+- **Rules engines / judge tools** — parse `scenario.type` to route to appropriate validation logic
+- **Learning platforms** — index by `scenario.tags` for searchable rules libraries; surface linked scenarios from `rules_clarification` markers in game review mode
+
+---
+
+## 19. Version History
 
 | Version | Date       | Changes               |
 | ------- | ---------- | --------------------- |
@@ -2512,10 +2650,11 @@ for the same player, consumers should prefer the inline `decklist`.
 | 1.4.0   | 2026-02-21 | Added `deck_link` with revision anchor to player metadata |
 | 1.5.0   | 2026-02-22 | Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` events; extended player metadata |
 | 1.6.0   | 2026-03-11 | Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files |
+| 1.7.0   | 2026-04-01 | Added scenario replay mode (`mode` field + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis; added `rules_clarification` learning marker category |
 
 ---
 
-## 19. Legal
+## 20. Legal
 
 This format is designed for Magic: The Gathering gameplay recording and analysis. Magic: The Gathering is trademark of Wizards of the Coast LLC.
 

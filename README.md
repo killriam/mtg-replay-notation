@@ -21,6 +21,7 @@ MTG Replay Notation is a comprehensive format designed for:
 | [Format Specification](./spec/MTG-REPLAY-NOTATION.md) | Complete v1.6.0 replay format specification |
 | [Commander Decklist Notation](./spec/commander-decklist-spec.md) | Commander decklist format with mechanic roles, mulligan rules, combos |
 | [State Evaluation Framework](./spec/mtg-state-evaluation-spec.md) | Multi-dimensional game state evaluation |
+| [Forge Integration Guide](./spec/forge-integration-guide.md) | What is implemented in Forge, what is missing, and key code paths |
 | [JSON Schema (Replay)](./schema/replay-schema.json) | JSON Schema for replay file validation |
 | [JSON Schema (Decklist)](./schema/commander-decklist-schema.json) | JSON Schema for commander decklist validation |
 | [Examples](./examples/) | Sample replay and decklist files |

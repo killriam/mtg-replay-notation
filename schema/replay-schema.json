@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://github.com/Killriam/mtg-replay-notation/schema/replay-schema.json",
     "title": "MTG Replay Notation",
-    "description": "Schema for MTG Replay & Learning Notation v1.6.0",
+    "description": "Schema for MTG Replay & Learning Notation v1.7.0",
     "type": "object",
     "required": ["format", "version", "meta", "seed", "card_index", "initial_state"],
     "properties": {
@@ -87,6 +87,16 @@
                 "$ref": "#/definitions/CommanderDecklist"
             },
             "description": "Optional map of player ID to inline commander decklist (v1.6.0+)"
+        },
+        "mode": {
+            "type": "string",
+            "enum": ["full_game", "scenario"],
+            "default": "full_game",
+            "description": "Replay mode: full_game (default) or scenario (v1.7.0+)"
+        },
+        "scenario": {
+            "$ref": "#/definitions/Scenario",
+            "description": "Scenario metadata — required when mode is 'scenario' (v1.7.0+)"
         }
     },
     "definitions": {
@@ -573,8 +583,8 @@
                 },
                 "category": {
                     "type": "string",
-                    "enum": ["decision_review", "mistake", "turning_point", "interesting_interaction", "sideboard_note", "general"],
-                    "description": "Classification of the marker"
+                    "enum": ["decision_review", "mistake", "turning_point", "interesting_interaction", "rules_clarification", "sideboard_note", "general"],
+                    "description": "Classification of the marker (rules_clarification added v1.7.0)"
                 },
                 "created_at": {
                     "type": "string",
@@ -1116,6 +1126,44 @@
                     "type": "string",
                     "enum": ["critical", "major", "minor"],
                     "description": "How badly the anti-synergy affects the deck (default: 'major')"
+                }
+            }
+        },
+        "Scenario": {
+            "type": "object",
+            "required": ["type", "title"],
+            "description": "Metadata for a scenario replay file (v1.7.0+)",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["interaction_check", "rules_clarification", "combo_outcome"],
+                    "description": "Purpose of the scenario"
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short human-readable title"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "Full scenario description including board state narrative"
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The specific question being answered"
+                },
+                "answer": {
+                    "type": "string",
+                    "description": "The authoritative answer to the question"
+                },
+                "ruling_references": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Comprehensive Rules citations (e.g. 'CR 702.2b')"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Free-form keyword tags for search and filtering"
                 }
             }
         }

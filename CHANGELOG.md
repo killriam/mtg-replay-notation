@@ -5,6 +5,33 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-04-01
+
+### Added
+- **Scenario Replay Mode** — New top-level `mode` field (`"full_game"` | `"scenario"`)
+  allows a file to represent a focused board-state scenario rather than a complete game
+- **`scenario` Object** — Required when `mode` is `"scenario"`; contains:
+  - `type` — Purpose of the scenario: `"interaction_check"`, `"rules_clarification"`,
+    or `"combo_outcome"`
+  - `title` — Short human-readable title (required)
+  - `description` — Full narrative description of the board state and context
+  - `question` — The specific rules or interaction question being answered
+  - `answer` — The authoritative answer
+  - `ruling_references` — Array of Comprehensive Rules citations (e.g. `"CR 702.2b"`)
+  - `tags` — Free-form keyword tags for search and filtering
+- **`rules_clarification` Learning Marker Category** — New value for
+  `LEARNING_MARKER.data.category` (and `learning_markers[].category`); used to flag
+  moments in a full game replay where a rules question arose; `notes` field should
+  contain the answer and CR references
+- **Schema** — `replay-schema.json` updated to v1.7.0:
+  - Added `mode` top-level property (enum: `"full_game"`, `"scenario"`)
+  - Added `scenario` top-level property referencing new `Scenario` definition
+  - Added `Scenario` definition with all fields above
+  - Extended `LearningMarker.category` enum with `"rules_clarification"`
+- **Specification** — New §18 "Scenario Replay Mode" with minimal scenario file example,
+  field reference tables, and guidance for linking `rules_clarification` markers to
+  standalone scenario files
+
 ## [1.6.1] - 2026-03-28
 
 ### Fixed
