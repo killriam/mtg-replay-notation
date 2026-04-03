@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.7.0
+## Format Specification v1.8.0
 
 **Status:** Stable
 **Published:** April 2026
@@ -16,6 +16,7 @@
 - **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
 - **1.6.0** (March 2026): Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files
 - **1.7.0** (April 2026): Added scenario replay mode (`mode: "scenario"` + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis; added `rules_clarification` learning marker category
+- **1.8.0** (April 2026): Specified library zone draw order in `initial_state.objects`; added optional `replay_config` top-level field for controlling library order enforcement during replay
 
 ---
 
@@ -67,6 +68,9 @@ A replay file contains:
     ],
     "game_summary": {
         /* Pre-computed game-wide statistics (v1.5.0+) */
+    },
+    "replay_config": {
+        /* Optional: library order enforcement for Replay Mode (v1.8.0+) */
     }
 }
 ```
@@ -412,6 +416,29 @@ The `initial_state` captures the game configuration at start:
     "objects": {}
 }
 ```
+
+### 6.1 Library Draw Order in `objects` (v1.8.0+)
+
+When `initial_state.objects` contains entries for a player's library zone (`"zone": "PX:library"`), the **JSON insertion order is authoritative** — index 0 is the top of the library (the card drawn first). This ordering acts as the random seed for Replay Mode.
+
+Each library object may include a `notes.position` integer field set by the capture implementation to make the order explicit and survive any JSON serializer that does not guarantee insertion-order preservation:
+
+```json
+"objects": {
+    "obj-001": {
+        "zone": "P1:library",
+        "card_ref": "Lightning Bolt",
+        "notes": { "position": 0 }
+    },
+    "obj-002": {
+        "zone": "P1:library",
+        "card_ref": "Mountain",
+        "notes": { "position": 1 }
+    }
+}
+```
+
+When `notes.position` is present, consumers MUST sort by it to reconstruct the draw order. When absent, insertion order is used as the fallback.
 
 ---
 
@@ -2638,7 +2665,30 @@ Scenario files are consumed differently from full-game replays:
 
 ---
 
-## 19. Version History
+## 19. Replay Configuration (`replay_config`) (v1.8.0+)
+
+The optional top-level `replay_config` object controls how a replay file is loaded for active re-play (Replay Mode). It is absent in normal game recordings and may be added by the replay launcher when it writes replay metadata.
+
+```json
+"replay_config": {
+    "force_library_order": true,
+    "shuffle_restore": "always"
+}
+```
+
+| Field                 | Type    | Default    | Description |
+| --------------------- | ------- | ---------- | ----------- |
+| `force_library_order` | boolean | `true`     | When `true`, the library draw order from `initial_state.objects` is applied before the first draw. |
+| `shuffle_restore`     | string  | `"always"` | Controls order restoration after mid-game shuffles (fetchlands, tutors, etc.). `"always"` = silently re-apply the forced order after every shuffle. `"never"` = only the initial order is forced; subsequent shuffles are random. |
+
+**Notes:**
+- This field is read by the game engine at game start and has no effect on passive viewers (Game Learning Viewer).
+- `shuffle_restore: "always"` gives the player the same draw sequence as the original game even through fetchland activations and library manipulation effects.
+- Both fields are optional. Omitting `replay_config` entirely is equivalent to `{ "force_library_order": false }`.
+
+---
+
+## 20. Version History
 
 | Version | Date       | Changes               |
 | ------- | ---------- | --------------------- |
@@ -2651,10 +2701,11 @@ Scenario files are consumed differently from full-game replays:
 | 1.5.0   | 2026-02-22 | Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` events; extended player metadata |
 | 1.6.0   | 2026-03-11 | Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files |
 | 1.7.0   | 2026-04-01 | Added scenario replay mode (`mode` field + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis; added `rules_clarification` learning marker category |
+| 1.8.0   | 2026-04-03 | Specified library draw order semantics in Section 6.1 (`notes.position` in `initial_state.objects`); added optional `replay_config` top-level field (Section 19) |
 
 ---
 
-## 20. Legal
+## 21. Legal
 
 This format is designed for Magic: The Gathering gameplay recording and analysis. Magic: The Gathering is trademark of Wizards of the Coast LLC.
 
