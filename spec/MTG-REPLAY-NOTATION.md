@@ -1,9 +1,9 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.5.0
+## Format Specification v1.7.0
 
 **Status:** Stable  
-**Published:** February 2026  
+**Published:** April 2026  
 **Purpose:** Human-readable specification for understanding MTG game replay files
 
 **Version History:**
@@ -15,6 +15,7 @@
 - **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
 - **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
 - **1.6.0** (March 2026): Added scenario replay mode (`mode: "scenario"` + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis
+- **1.7.0** (April 2026): Extended `scenario` object with `title`, `player_count`, `answer`, `ruling_references`, `tags`, and `game_state`; `type` as alias for `purpose`
 
 ---
 
@@ -318,48 +319,64 @@ Scenario mode is an additional notation style for describing focused game states
 
 Required fields in `scenario`:
 - `description`: human-readable summary of the playing situation
-- `purpose`: one of `"rules_clarification"`, `"combo_outcome"`, `"interaction_check"`, or `"general"`
+- `type` / `purpose`: one of `"rules_clarification"`, `"combo_outcome"`, `"interaction_check"`, or `"general"`. `type` is the preferred field name from v1.7.0; `purpose` is the v1.6.0 alias and remains supported.
 
 Optional fields in `scenario`:
+- `title`: short human-readable title for the scenario (v1.7.0+)
+- `player_count`: number of players in the scenario (v1.7.0+)
 - `question`: the specific ruling/analysis prompt
-- `expected_outcomes`: list of anticipated answers or possible results
+- `answer`: the authoritative ruling or answer (v1.7.0+)
+- `expected_outcomes`: list of anticipated answers or possible results (v1.6.0 format; `answer` preferred from v1.7.0)
+- `ruling_references`: list of MTG Comprehensive Rules or engine source references, e.g. `"MTG CR 500.8: ..."` (v1.7.0+)
+- `tags`: list of lowercase tag strings for categorization, e.g. `["extra-turns", "multiplayer"]` (v1.7.0+)
 - `notes`: additional context for judges, rules engines, or AI analysis
+- `game_state`: list of Forge-format game state strings that describe the initial board. Each entry uses the Forge `.fgs` key=value convention, e.g. `"humanlife=20"`, `"humanbattlefield=Card Name|Set:XXX|Counters:TYPE=N; ..."`. Required for Forge-loadable scenarios; omit for pure annotation use. (v1.7.0+)
+
+In scenario mode, the `events`, `card_index`, and `initial_state` top-level fields are present but may be empty stubs (`[]` / `{}`). The `seed` field should be `0`. This allows parsers to handle both modes uniformly.
 
 Example:
 
 ```json
 {
   "format": "mtg-replay",
-  "version": "1.6.0",
-  "spec_version": "1.6.0",
+  "version": "1.7.0",
+  "spec_version": "1.7.0",
   "mode": "scenario",
   "meta": {
     "game_id": "scenario-12345",
-    "timestamp": "2026-03-31T12:00:00Z",
+    "timestamp": "2026-04-01T12:00:00Z",
     "game_type": "Scenario",
-    "players": {
-      "P1": {"name": "Test Player", "is_ai": false, "player_type": "Human", "starting_life": 20}
-    }
+    "players": []
   },
   "scenario": {
-    "description": "P1 controls Hullbreacher and multiple Counterspells in hand at the end of opponent's draw step.",
-    "purpose": "rules_clarification",
-    "question": "How many cards does P1 draw when opponent attempts to draw for turn and Spellstutter Sprite triggers?",
-    "expected_outcomes": ["0", "1", "2"],
-    "notes": "Use this to validate delayed replacement effects and Gitrog interaction rules."
+    "type": "interaction_check",
+    "title": "Lighthouse Chronologist Extra Turn in Multiplayer",
+    "player_count": 3,
+    "description": "A multiplayer game with 3 players. You (Player 0) control a Lighthouse Chronologist at Level 7+. It is the End Step of Player 1 — not your turn. The Chronologist ability triggers: you get an extra turn after this.",
+    "question": "What happens to turn order when Lighthouse Chronologist generates an extra turn in a multiplayer game?",
+    "answer": "Per MTG CR 500.8, extra turns are taken in LIFO order (last granted = first played). Correct order: AI1-End → Human-Extra → AI2 → Human (normal).",
+    "ruling_references": [
+      "MTG CR 500.7: Some effects can give a player extra turns.",
+      "MTG CR 500.8: Multiple extra turns are taken one at a time in the order they were created (last in, first out)."
+    ],
+    "tags": ["extra-turns", "multiplayer", "turn-order", "LIFO"],
+    "game_state": [
+      "humanlife=20",
+      "humanbattlefield=Lighthouse Chronologist|Set:M12|Counters:LEVEL=7; Island|Set:M12",
+      "humanhand=",
+      "p1life=20",
+      "p1battlefield=Forest|Set:M12; Llanowar Elves|Set:M12",
+      "activeplayer=p1",
+      "activephase=MAIN2",
+      "turn=2",
+      "removeSummoningSickness=true"
+    ]
   },
-  "card_index": {
-    "Hullbreacher": {"name": "Hullbreacher", "type": "Creature - Elf", "oracle_text": "..."},
-    "Spellstutter Sprite": {"name": "Spellstutter Sprite", "type": "Creature - Faerie Wizard", "oracle_text": "..."}
-  },
-  "initial_state": {
-    "turn": 5,
-    "phase": "DRAW",
-    "players": {
-      "P1": {"life": 20, "hand": ["c1", "c2"]},
-      "P2": {"life": 18}
-    }
-  }
+  "seed": 0,
+  "card_index": {},
+  "initial_state": {},
+  "events": [],
+  "views_l2": []
 }
 ```
 
