@@ -5,6 +5,28 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-04-12
+
+### Added
+- **Commander Decklist Notation v1.2.0** (`spec/commander-decklist-spec.md`):
+  - `meta.source_url` — optional URL of the external deck page the list was imported from
+  - New scenario type `eval_sequence` (§6.4.5) — multi-turn draw + play sequence for
+    evaluation runs; supports both `forced` (fixed library order) and `look_for`
+    (pattern matching) execution modes
+  - Scenario `mode` field (§6.4.1a) — `"forced"` | `"look_for"` applicable to all
+    scenario types; default is `"look_for"`
+  - Card reference type (§6.4.1b) — card entries in `opening_hand`, `turns[].drawn`,
+    `turns[].played`, `board_state.zones`, and `zone_requirements` may now be either a
+    plain card name string or a `{"group": "<mechanic_group_key>"}` object
+  - `board_state` field on scenarios (§6.4.4) — explicit per-zone snapshot companion
+    to the existing `preconditions` block
+  - `simulation.eval_scenario_ids` — replaces `use_best_starting_hand` /
+    `use_perfect_game` booleans with a list of `eval_sequence` scenario IDs to execute
+  - Validation rules 13–16 covering new scenario types, group references, and mode
+    constraints
+- **Deprecated** — `simulation.use_best_starting_hand` and `simulation.use_perfect_game`
+  replaced by `eval_scenario_ids`; kept for v1.x backward compatibility
+
 ## [1.6.1] - 2026-03-28
 
 ### Fixed

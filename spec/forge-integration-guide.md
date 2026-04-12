@@ -1,6 +1,6 @@
 # Forge Integration Guide
 
-**Applies to:** Commander Decklist Spec v1.1.0+
+**Applies to:** Commander Decklist Spec v1.2.0+
 **Forge version tested:** Forge 1.6.x (open-source MTG AI simulator)
 
 ---
@@ -42,11 +42,35 @@ Name=Atraxa Superfriends
 
 - Section headers are `[metadata]`, `[Commander]`, `[Main]`, `[Sideboard]`.
 - Each card line is `<quantity> <Exact English card name>`.
-- The `[metadata]` block supports `Name=`, `Filename=`, and `Description=` keys.
+- The `[metadata]` block supports `Name=`, `Filename=`, `Description=`, and the
+  MaMo-specific keys below.
 - `[Sideboard]` is optional; `[Commander]` is required for Commander format.
 - Maybeboard has no equivalent in `.dck` — omit those cards.
 - Card names must match Forge's internal card database exactly (same as Scryfall
   English names).
+
+### MaMo-specific metadata keys (v1.2.0+)
+
+| Key | Description |
+|-----|-------------|
+| `DeckURL` | Source URL the deck was imported from (e.g. Moxfield link). Stored in `meta.source_url` of the companion JSON. Populated in the replay export as `deck_link`. |
+| `EvalScenario` | Comma-separated list of `eval_sequence` scenario IDs to activate. References `deck_rules.scenarios[].id` in the companion JSON. |
+
+Example:
+
+```ini
+[metadata]
+Name=Red Aggro Test
+DeckURL=https://moxfield.com/decks/abc123
+EvalScenario=eval_7plus3_aggro,eval_14_flat
+
+[Commander]
+1 Krenko, Mob Boss
+
+[Main]
+4 Lightning Bolt
+...
+```
 
 ---
 
@@ -121,8 +145,7 @@ Forge in headless mode).
         "play_order": "random",
         "difficulty": "ultimate",
         "starting_life": 40,
-        "use_best_starting_hand": true,
-        "use_perfect_game": false
+        "eval_scenario_ids": ["eval_7plus3_aggro", "eval_14_flat"]
     }
 }
 ```
@@ -134,17 +157,61 @@ Forge in headless mode).
 | `play_order: "random"` | New Game → default (leave unset) |
 | `difficulty` | New Game → AI Difficulty dropdown |
 | `starting_life` | New Game → Starting life (default 40 for Commander) |
-| `use_best_starting_hand` | See §5 below |
-| `use_perfect_game` | See §5 below |
+| `eval_scenario_ids` | See §5 below — replaces `use_best_starting_hand` / `use_perfect_game` |
 
-Forge does not accept these as `.dck` metadata — they must be set in the UI or via
-Forge's simulation XML profile files if available in your Forge build.
+Forge does not accept these as `.dck` metadata — they must be set in the UI or applied
+programmatically via `GameReplaySimulation.applyForcedLibraryOrder()` (see §5.1).
 
 ---
 
 ## 5. Using Scenarios in Forge
 
-### 5.1 `best_starting_hand` scenario
+### 5.1 `eval_sequence` scenario (v1.2.0+)
+
+The `eval_sequence` type is the primary scenario type for evaluation runs.
+It defines a complete draw + play sequence with an optional board state snapshot.
+
+Two execution modes are supported:
+
+**Forced mode** — Forge uses a fixed library order so the exact sequence is
+reproduced every game:
+
+```java
+// In mamo-Connector or simulation harness:
+List<String> ids = GameReplaySimulation.getEvalScenarioIds(deck);
+// ids = ["eval_7plus3_aggro", "eval_14_flat"] (from EvalScenario metadata)
+
+// For each forced-mode scenario:
+//   1. Load the companion JSON and find the scenario by id
+//   2. Resolve group refs {"group":"ramp"} → first matching card in deck list
+//   3. Build the ordered list: opening_hand cards + turns[].drawn cards
+List<String> cardOrder = resolveScenario(deck, scenarioJson);
+
+GameReplaySimulation.applyForcedLibraryOrder(rules, playerName, cardOrder);
+// This calls rules.setReplayMode(true) and populates forcedLibraryOrder
+```
+
+**Look_for mode** (default) — Forge runs normally. After each turn the game
+engine evaluates whether the actual state matches the scenario's `board_state`
+and `turns` conditions. A match event is logged in the replay when satisfied.
+
+#### Card reference resolution
+
+Group references (`{"group": "ramp"}`) must be resolved before calling
+`applyForcedLibraryOrder`. Resolution rule: pick the first card in the deck's
+`main` section whose `primary_mechanic` equals the group key.
+
+If no matching card is found, skip that slot (do not crash — the library order
+will be shorter than expected).
+
+#### Draw shapes
+
+| Shape | `opening_hand` size | `turns` count | Total drawn |
+|-------|--------------------:|:-------------:|:-----------:|
+| 7+3   | 7 | 3 | 10 |
+| 14    | 14 | 0 | 14 |
+
+### 5.2 `best_starting_hand` scenario
 
 The `best_starting_hand` scenario documents the ideal 7-card opening hand. When
 `use_best_starting_hand: true` is set in `simulation`:
@@ -283,7 +350,13 @@ Before handing a deck to Forge:
 - [ ] Card names match Forge's database (check for split cards: `Fire // Ice`)
 - [ ] `deck_rules.simulation.target` is `"forge"`
 - [ ] Difficulty and play order noted for New Game dialog
-- [ ] If `use_best_starting_hand: true` — locate the `best_starting_hand` scenario and
-      note the 7 `opening_hand` card names
-- [ ] If running a `mid_game` scenario — resolve `mechanic_groups` to specific card
-      names using the deck's mechanic workshop data before loading Forge
+- [ ] If `eval_scenario_ids` is set — every listed ID exists in `deck_rules.scenarios`
+      and has `"type": "eval_sequence"`
+- [ ] `.dck` `[metadata]` includes `DeckURL=` and `EvalScenario=` when applicable
+- [ ] Group references (`{"group": "..."}`) resolved to concrete card names for
+      `"forced"` mode scenarios
+- [ ] If running a `mid_game` / `free_build` scenario — resolve `mechanic_groups` to
+      specific card names using the deck's mechanic workshop data before loading Forge
+
+See [eval-scenario-guide.md](./eval-scenario-guide.md) for the full concept reference
+and end-to-end testing steps.
