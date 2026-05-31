@@ -192,6 +192,7 @@ The `meta` section contains information about the game:
 - `conceded` — Boolean indicating if any player conceded
 - `turns` — Total number of turns played
 - `duration_seconds` — Real-time duration of game
+- `replayed_at` — ISO 8601 timestamp when this file was replayed in Replay Mode (v1.8.0+, set by replay launcher; `null` if not yet replayed)
 
 ### 4.1 Player Metadata
 
@@ -512,6 +513,10 @@ Automatic game actions and state changes:
 | `RANDOM`       | Random event (shuffle, reveal)  |
 | `DRAW`         | Card is drawn from library (v1.5.0+) |
 | `GAME_START`   | Game initialization event (v1.5.0+) |
+| `CREATE_TOKEN` | Token is created (v1.8.0+)      |
+| `MANA_TAP`     | Mana is produced from a source (v1.8.0+) |
+| `TRANSFORM`    | Card transforms to other face (v1.8.0+) |
+| `COPY`         | Spell or permanent is copied (v1.8.0+) |
 
 ---
 
@@ -1249,6 +1254,132 @@ Recorded for random game actions (shuffle, scry, coin flip, etc.):
 - `player` — Player whose library/selection is affected
 - `reason` — What caused the random event (e.g., card name or game rule)
 - `result` — Outcome for binary events (e.g., `"heads"`, `"tails"`)
+
+---
+
+#### CREATE_TOKEN Event (v1.8.0+)
+
+Recorded when a token permanent is created:
+
+```json
+{
+    "i": 60,
+    "t": "T4.MP1:3",
+    "a": "SYS",
+    "type": "CREATE_TOKEN",
+    "data": {
+        "token_id": "t1",
+        "name": "Zombie",
+        "token_type": "2/2 black Zombie creature token",
+        "controller": "P1",
+        "source": "c42",
+        "source_name": "Army of the Damned",
+        "power": "2",
+        "toughness": "2",
+        "zone": "battlefield"
+    }
+}
+```
+
+**Data Fields:**
+
+- `token_id` — Unique token identifier (`t` prefix + number)
+- `name` — Token name
+- `token_type` — Full type description including P/T and subtypes
+- `controller` — Player who controls the token
+- `source` — Card ID that created the token
+- `source_name` — Human-readable name of the source card
+- `power` — Token's power (if creature)
+- `toughness` — Token's toughness (if creature)
+- `zone` — Zone the token enters (typically `"battlefield"`)
+
+---
+
+#### MANA_TAP Event (v1.8.0+)
+
+Recorded when a permanent is tapped for mana:
+
+```json
+{
+    "i": 15,
+    "t": "T2.MP1:1",
+    "a": "SYS",
+    "type": "MANA_TAP",
+    "data": {
+        "source": "c3",
+        "source_name": "Breeding Pool",
+        "mana_produced": ["U"],
+        "player": "P1"
+    }
+}
+```
+
+**Data Fields:**
+
+- `source` — Object ID of the permanent producing mana
+- `source_name` — Human-readable name of the mana source
+- `mana_produced` — Array of mana symbols produced (e.g., `["W"]`, `["U", "G"]`)
+- `player` — Player who receives the mana
+
+---
+
+#### TRANSFORM Event (v1.8.0+)
+
+Recorded when a double-faced card (DFC) or modal double-faced card (MDFC) transforms:
+
+```json
+{
+    "i": 45,
+    "t": "T4.MP1:2",
+    "a": "SYS",
+    "type": "TRANSFORM",
+    "data": {
+        "obj": "c18",
+        "card_name": "Delver of Secrets",
+        "from_face": "Delver of Secrets",
+        "to_face": "Insectile Aberration"
+    }
+}
+```
+
+**Data Fields:**
+
+- `obj` — Object ID of the transforming card
+- `card_name` — Current card name before transformation
+- `from_face` — Name of the face being transformed away from
+- `to_face` — Name of the face being transformed into
+
+---
+
+#### COPY Event (v1.8.0+)
+
+Recorded when a spell or permanent is copied (e.g., Clone, Storm, Twincast):
+
+```json
+{
+    "i": 70,
+    "t": "T5.MP1:3",
+    "a": "SYS",
+    "type": "COPY",
+    "data": {
+        "original": "c25",
+        "original_name": "Lightning Bolt",
+        "copy_id": "t5",
+        "copy_name": "Lightning Bolt",
+        "controller": "P1",
+        "kind": "spell"
+    }
+}
+```
+
+**Data Fields:**
+
+- `original` — Object ID of the original spell or permanent
+- `original_name` — Human-readable name of the original
+- `copy_id` — Object ID assigned to the copy (token ID for permanent copies)
+- `copy_name` — Name of the copy
+- `controller` — Player who controls the copy
+- `kind` — `"spell"` for spell copies (Storm), `"permanent"` for Clone effects
 
 ---
 
@@ -2056,7 +2187,14 @@ The replay format enables calculation of key performance indicators (KPIs) for a
 - **Calculation:**
   - Parse each card's mana cost (e.g., `{2}{W}{U}` → generic: 2, W: 1, U: 1)
   - Check if colored requirements met: `mana_pool[color] >= cost[color]` for each color
-  Spell Velocity**
+  - Check if total mana ≥ total cost
+- **Data Requirements:**
+  - ✅ **Available Now:** Hand contents from cumulative zone tracking
+  - ✅ **Requires Card DB:** Card mana costs
+  - ✅ **Requires Card DB:** Flash keyword detection
+  - ⚠️ **Limitation:** Cannot detect situational reasons to hold mana (e.g., waiting for specific threat)
+
+**Spell Velocity**
 - **Definition:** Mean number of spells cast per turn
 - **Formula:** `(Total CAST events for player) / (Total turns)`
 - **Calculation:** Count all CAST events where actor is the player, divide by turns
@@ -2088,12 +2226,6 @@ The replay format enables calculation of key performance indicators (KPIs) for a
 - **Rating by Archetype:**
   - Aggro (threshold 6): Fast if turn ≤2, On Curve if turn 3, Slow if turn ≥4
   - Tempo (threshold 8): Fast if turn ≤3, On Curve if turn 4, Slow if turn ≥5
-- **Data Requirements:**
-  - ✅ **Available Now:** `lands_played_this_turn` counter from player state
-  - ✅ **Available Now:** Hand contents from cumulative zone tracking
-  - ✅ **Requires Card DB:** Land type identification (though basic patterns can work)
-  - ⚠️ **Limitation:** Cannot detect deliberate holds (e.g., holding fetchland for shuffle)
-  - ⚠️ **Limitation:** Multiple land drop abilities (e.g., Azusa) not currently tracked
   - Midrange (threshold 10): Fast if turn ≤4, On Curve if turn 5, Slow if turn ≥6
   - Control (threshold 12): Fast if turn ≤5, On Curve if turn 6-7, Slow if turn ≥8
 
@@ -2110,8 +2242,12 @@ The replay format enables calculation of key performance indicators (KPIs) for a
   - ✅ **Available Now:** Win condition turn from `win_condition` event
   - ⚠️ **Partial:** Board dominance calculation (see Effective Turn requirements)
 - **Usage:** Focal point for deep analysis — what decisions led here? Were there alternatives 2-3 turns earlier?
+
+**Unused Mana at Opponent Turn**
+- **Definition:** Average mana left untapped when passing to opponent
+- **Data Requirements:**
   - ✅ **Requires Card DB:** Flash keyword detection
-  - ⚠️ **Limitation:** Cannot detect situational reasons to hold mana (e.g., waiting for specific threat)
+  - ⚠️ **Limitation:** Cannot detect situational reasons to hold mana
   - ⚠️ **Context Dependency:** Tap-out decks (aggro/ramp) naturally have higher waste
 - **Rating Scale:**
   - 0–1 per turn: 🟢 Efficient
@@ -2148,11 +2284,18 @@ The replay format enables calculation of key performance indicators (KPIs) for a
   - 70–89%: 🟡 Adequate (some spells color-locked)
   - <70%: 🔴 Deficient (significant color problems)
 
-### 16.3 Game Tempo Metrics
+### 16.3 Game Tempo & Strategic Efficiency Metrics
 
-**AverageData Requirements Summary
+**Missed Land Drops**
+- **Definition:** Number of turns without playing a land when lands were available
+- **Formula:** `Count of turns (land in hand AND lands_played_this_turn == 0)`
+- **Calculation:**
+  - Each turn, check player hand for land cards
+  - Verify lands_played_this_turn counter
+  - Count missed opportunities
+- **Interpretation:** Indicates unforced play errors or mana flood management decisions
 
-**Computation Requirements Table:**
+### 16.4 Computation Requirements Summary
 
 | Statistic | Log Events Only | Card DB Required | Decklist Required | Current Status |
 |-----------|----------------|------------------|-------------------|----------------|
@@ -2177,13 +2320,13 @@ The replay format enables calculation of key performance indicators (KPIs) for a
 - **L2 Views:** Decision context and turn summaries
 
 **Current Limitations:**
-1. ❌ **Mana Tap Events:** `mana_tap` events with `manaProduced` values not consistently logged
+1. ❌ **Mana Tap Events:** `MANA_TAP` events with `mana_produced` values not consistently logged (event type added v1.8.0)
 2. ❌ **Permanent Tags:** Game-ending permanents, combo pieces not tagged
 3. ❌ **Ability Tracking:** Flash, multiple land drops, alternative costs not fully tracked
 4. ❌ **Summoning Sickness:** Cannot determine if creatures could attack/tap abilities
 5. ⚠️ **Hand Visibility:** Relies on cumulative tracking (may have gaps if player hides information)
 
-### 16.6 Implementation Guidelines
+### 16.5 Implementation Guidelines
 
 **Best Practices:**
 - Calculate statistics for both players separately
@@ -2208,39 +2351,6 @@ The replay format enables calculation of key performance indicators (KPIs) for a
 - High unused mana → add more instant-speed interaction
 - Low card efficiency → deck building: replace underperforming cards
 - Critical turn at turn 3 → analyze turns 1-2 for better play
-- **Interpretation:** Helps identify key decision points for analysis
-
-### 16.4 Strategic Efficiency Metrics
-
-**Missed Land Drops**
-- **Definition:** Number of turns without playing a land when lands were available
-- **Formula:** `Count of turns (land in hand AND lands_played_this_turn == 0)`
-- **Calculation:**
-  - Each turn, check player hand for land cards
-  - Verify lands_played_this_turn counter
-  - Count missed opportunities
-- **Interpretation:** Indicates unforced play errors or mana flood management decisions
-
-### 16.5 Implementation Guidelines
-
-**Data Sources:**
-- Extract from L1 event log for authoritative data
-- Use L2 views for decision context
-- Reference card_index for card types and costs
-- Access player state for mana_pool and counters
-
-**Best Practices:**
-- Calculate statistics for both players separately
-- Compare against deck archetype averages
-- Consider game format and matchup context
-- Correlate with game outcome (win/loss)
-- Highlight outlier games for detailed review
-
-**Example Use Cases:**
-- Identify consistent mana problems → mulligan strategy adjustment
-- Low spell velocity → deck curve optimization
-- High unused mana → add more instant-speed interaction
-- Low card efficiency → deck building: replace underperforming cards
 
 ### 16.7 Identifying Major Impact Turns and Plays
 
@@ -2701,7 +2811,7 @@ The optional top-level `replay_config` object controls how a replay file is load
 | 1.5.0   | 2026-02-22 | Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` events; extended player metadata |
 | 1.6.0   | 2026-03-11 | Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files |
 | 1.7.0   | 2026-04-01 | Added scenario replay mode (`mode` field + `scenario` object) for interaction checks, rules clarification, and combo outcome analysis; added `rules_clarification` learning marker category |
-| 1.8.0   | 2026-04-03 | Specified library draw order semantics in Section 6.1 (`notes.position` in `initial_state.objects`); added optional `replay_config` top-level field (Section 19) |
+| 1.8.0   | 2026-04-03 | Specified library draw order semantics in Section 6.1 (`notes.position` in `initial_state.objects`); added optional `replay_config` top-level field (Section 19); added `replayed_at` to metadata; new event types: `CREATE_TOKEN`, `MANA_TAP`, `TRANSFORM`, `COPY`; extended player actor IDs beyond P4 (P1–P99); fixed §16 formatting issues |
 
 ---
 

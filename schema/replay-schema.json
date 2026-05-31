@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://github.com/Killriam/mtg-replay-notation/schema/replay-schema.json",
     "title": "MTG Replay Notation",
-    "description": "Schema for MTG Replay & Learning Notation v1.7.0",
+    "description": "Schema for MTG Replay & Learning Notation v1.8.0",
     "type": "object",
     "required": ["format", "version", "meta", "seed", "card_index", "initial_state"],
     "properties": {
@@ -97,6 +97,10 @@
         "scenario": {
             "$ref": "#/definitions/Scenario",
             "description": "Scenario metadata — required when mode is 'scenario' (v1.7.0+)"
+        },
+        "replay_config": {
+            "$ref": "#/definitions/ReplayConfig",
+            "description": "Optional: library order enforcement for Replay Mode (v1.8.0+)"
         }
     },
     "definitions": {
@@ -145,6 +149,11 @@
                     "type": "integer",
                     "minimum": 0,
                     "description": "Real-time duration of game"
+                },
+                "replayed_at": {
+                    "type": ["string", "null"],
+                    "format": "date-time",
+                    "description": "ISO 8601 timestamp when this file was replayed (set by replay launcher, v1.8.0+)"
                 }
             }
         },
@@ -400,8 +409,8 @@
                 },
                 "a": {
                     "type": "string",
-                    "enum": ["P1", "P2", "P3", "P4", "SYS"],
-                    "description": "Actor"
+                    "pattern": "^(P[1-9][0-9]*|SYS)$",
+                    "description": "Actor — player ID (P1, P2, … P99) or SYS for system events"
                 },
                 "type": {
                     "type": "string",
@@ -412,7 +421,8 @@
                         "PUT_ON_STACK", "TRIGGER", "RESOLVE", "MOVE", "DAMAGE",
                         "LIFE", "COUNTERS", "TAP", "PHASE_CHANGE", "RESOURCES",
                         "STATE_BASED", "RANDOM",
-                        "DRAW", "GAME_START", "ACTIVE_PLAYER_CHANGE"
+                        "DRAW", "GAME_START", "ACTIVE_PLAYER_CHANGE",
+                        "CREATE_TOKEN", "MANA_TAP", "TRANSFORM", "COPY"
                     ],
                     "description": "Event type"
                 },
@@ -1164,6 +1174,23 @@
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Free-form keyword tags for search and filtering"
+                }
+            }
+        },
+        "ReplayConfig": {
+            "type": "object",
+            "description": "Controls how a replay file is loaded for active re-play (v1.8.0+)",
+            "properties": {
+                "force_library_order": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "When true, the library draw order from initial_state.objects is applied before the first draw"
+                },
+                "shuffle_restore": {
+                    "type": "string",
+                    "enum": ["always", "never"],
+                    "default": "always",
+                    "description": "Controls order restoration after mid-game shuffles. 'always' = re-apply forced order after every shuffle. 'never' = only the initial order is forced."
                 }
             }
         }

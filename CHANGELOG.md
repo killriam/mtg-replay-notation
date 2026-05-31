@@ -5,6 +5,32 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-04-03
+
+### Added
+- **Library Draw Order** — `initial_state.objects` entries for library zones use JSON
+  insertion order as authoritative draw order; optional `notes.position` integer field
+  for serializers that do not guarantee insertion-order preservation
+- **`replay_config`** — New optional top-level field controlling library order enforcement
+  during Replay Mode: `force_library_order` (boolean) and `shuffle_restore`
+  (`"always"` | `"never"`)
+- **`replayed_at`** — New optional field in `meta` section; ISO 8601 timestamp set by
+  the replay launcher when a file is loaded for Replay Mode
+- **New Event Types** (v1.8.0):
+  - `CREATE_TOKEN` — Token permanent creation with source, P/T, type, controller
+  - `MANA_TAP` — Mana production from a source with `mana_produced` array
+  - `TRANSFORM` — Double-faced card transformation with `from_face` / `to_face`
+  - `COPY` — Spell or permanent copy with `original`, `copy_id`, `kind`
+- **Extended Player Actor IDs** — `L1Event.a` now supports P1–P99 (pattern-based)
+  instead of hardcoded P1–P4, enabling large multiplayer games
+- **Schema** — `replay-schema.json` updated to v1.8.0 with all above additions
+
+### Fixed
+- **Specification §16** — Fixed broken formatting: completed "Cast Options in Hand"
+  section, restored "Spell Velocity" header, removed duplicate §16.4/§16.5
+  "Implementation Guidelines" sections, fixed "Effective Turn to Boardstate Impact"
+  interleaved data requirements, merged sections into clean §16.3–§16.5 structure
+
 ## [1.7.0] - 2026-04-01
 
 ### Added
