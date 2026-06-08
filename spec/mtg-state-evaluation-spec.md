@@ -63,7 +63,14 @@ This paper proposes a unified, learning-oriented framework for representing, rep
 11. [Applications](#11-applications)
 12. [Limitations and Future Work](#12-limitations-and-future-work)
 13. [Conclusion](#13-conclusion)
-14. [Appendix A: Notation Syntax and Semantics](#appendix-a-notation-syntax-and-semantics)
+14. [Player Skill Assessment](#14-player-skill-assessment)
+    - [Skill Domain Separation](#141-skill-domain-separation)
+    - [Deck Building Skills](#142-deck-building-skills)
+    - [Game Playing Skills](#143-game-playing-skills)
+    - [Skills Spanning Both Domains](#144-skills-spanning-both-domains)
+    - [Measurement Framework Integration](#145-measurement-framework-integration)
+    - [Composite Player Rating](#146-composite-player-rating)
+15. [Appendix A: Notation Syntax and Semantics](#appendix-a-notation-syntax-and-semantics)
 
 ---
 
@@ -1973,6 +1980,115 @@ The proposed heuristics are approximations and require tuning per format.
 ## 13. Conclusion
 
 This paper presents a unified notation and evaluation framework for Magic: The Gathering that bridges rules-accurate replay and learning-oriented analysis. By separating full-detail logs from pedagogical abstractions and adopting a vector-based evaluation model, the framework provides a foundation for explainable analysis, coaching, and AI research in complex card games.
+
+---
+
+## 14. Player Skill Assessment
+
+### 14.1 Skill Domain Separation
+
+MTG player skills divide into two distinct domains. **Deck Building Skills** are assessed prior to gameplay through deck construction analysis. **Game Playing Skills** are assessed during gameplay through replay analysis and state evaluation.
+
+Some skills manifest in both domains: the same concept (e.g., win condition planning) has a construction-phase component and an execution-phase component that should be rated independently.
+
+> **Format note:** Deck building skills are most meaningful when the player builds the deck themselves (non-curated formats). In draft or sealed, DB skills measure pick quality and pool assembly rather than full construction.
+
+---
+
+### 14.2 Deck Building Skills
+
+| # | Skill | Description | How to Measure |
+|---|-------|-------------|----------------|
+| **DB.1** | **Mana Base Construction** | Quality of land ratios, color fixing, and curve support | Color coverage % (§8.5), average CMC vs. mana sources, fixing source count, land count vs. format baseline |
+| **DB.2** | **Synergy Density** | How well cards enable and reward each other across the 99 | Formation completeness across full deck (§7), enabler:payoff ratio, mechanic overlap score |
+| **DB.3** | **Win Condition Selection** | Including multiple routes to victory appropriate to format and power level | Win condition count, redundancy across win types, vulnerability to common hate categories |
+| **DB.4** | **Interaction Package Design** | Appropriate removal, counterspells, and disruption at the right costs | Interaction count, CMC distribution of interaction, instant vs. sorcery split, coverage of threat types |
+| **DB.5** | **Threat Density** | Sufficient threat quantity and quality for the chosen strategy | Threat count, average threat value, evasion coverage, resilience to single-target removal |
+| **DB.6** | **Curve Design** | Spell cost distribution enabling relevant action on each turn | CMC histogram vs. expected available mana by turn, curve gaps, critical turn arrival (§8.10) |
+| **DB.7** | **Redundancy & Resilience** | Key functions covered by multiple interchangeable cards | Copies per function, substitutability score per role (§7.6), single-point-of-failure count |
+| **DB.8** | **Meta Positioning** | Deck is positioned appropriately against the expected meta | Matchup win rate vs. archetype tier, hate card inclusion vs. expected field, gameplan viability |
+| **DB.9** | **Consistency Engineering** | Tutor and card-selection package to reliably assemble key pieces | Tutor density, average turns to find win condition (simulation), setup reliability under disruption |
+| **DB.10** | **Archetype Coherence** | Cards collectively pull toward a unified gameplan | Archetype alignment score (§6.9 Align), dead-card rate per archetype role, strategic focus index |
+
+---
+
+### 14.3 Game Playing Skills
+
+| # | Skill | Description | How to Measure |
+|---|-------|-------------|----------------|
+| **GP.1** | **Threat Assessment** | Correctly identifying and prioritizing which threats to neutralize | Threat targeting accuracy, average turns to neutralize a dangerous threat, over/under-reaction rate |
+| **GP.2** | **Political Play** | Negotiating, redirecting aggression, managing table perception | Survival rate while being the recognized threat, number of enforced or upheld deals, game length extension from below-average position |
+| **GP.3** | **Resource Development** | Efficiently developing mana and card resources in-game | Mana efficiency rate (§8.3), land drop rating (§8.2), ramp-to-curve acceleration vs. baseline |
+| **GP.4** | **Card Advantage Execution** | Converting draw and hand quality into lasting advantage | Card draw efficiency (§8.6), formation activation rate, card advantage dimension delta (§6.4) |
+| **GP.5** | **Protection & Risk Management** | Proactively protecting key pieces and minimizing board exposure | Key piece survival rate, board wipe recovery speed (§scenario Post-Boardwipe), risk dimension score (§6.8) |
+| **GP.6** | **Tempo Management** | Maintaining initiative and optimizing action timing | Tempo dimension delta (§6.3), unused mana at end of opponent's turn (§8.9), spell velocity vs. expected (§8.7) |
+| **GP.7** | **Interaction Timing** | Correct deployment of removal, counterspells, and disruption | Interaction used at critical decision points vs. wasted on low-value targets, unused interaction rate, counterspell discipline score |
+| **GP.8** | **Win Condition Execution** | Recognizing and correctly executing winning lines | Missed lethal frequency (§9.5), combo proximity index at game end (§6.10), win conversion rate from ahead-state (scenario §7) |
+| **GP.9** | **Archetype Recognition** | Quickly identifying opponent strategies and adapting counter-play | Turns to correctly identify opponent's win condition, prediction accuracy on opponent's key plays |
+| **GP.10** | **Sequencing Efficiency** | Optimal ordering of plays within a turn | Sequencing error frequency (§9.4), mana utilization rate, play efficiency (§8.8) |
+| **GP.11** | **Information Management** | Bluffing, using hidden information, and reading revealed cards | Bluff success rate (passed priority with interaction held), correct reads on opponent's hidden interaction, information dimension contribution (§6.8) |
+| **GP.12** | **Table Position Awareness** | Leveraging turn order, multi-player dynamics, and kingmaking | Win rate by seat position, threat level perception accuracy, avoidance of inadvertent kingmaking |
+| **GP.13** | **Adaptability** | Pivoting strategy under pressure or after disruption | Recovery rate from board wipes and hand disruption, strategy pivot success rate, behind-state recovery scenario performance |
+
+---
+
+### 14.4 Skills Spanning Both Domains
+
+Some skills have distinct deck-building and gameplay components that should be assessed separately:
+
+| Skill | Deck Building Dimension | Gameplay Dimension |
+|-------|------------------------|-------------------|
+| **Win Condition Planning** | DB.3: Are the right win conditions included and redundantly supported? | GP.8: Are they correctly recognized and executed at the right moment? |
+| **Interaction** | DB.4: Is the interaction package sufficient and correctly costed? | GP.7: Is interaction deployed at the correct time against the right targets? |
+| **Resource Development** | DB.1 + DB.6: Does the deck enable reliable mana development? | GP.3: Is available mana and card access exploited efficiently in-game? |
+| **Risk Management** | DB.7: Is redundancy and resilience built into the construction? | GP.5: Are in-game risks correctly identified and mitigated? |
+| **Archetype Alignment** | DB.10: Do the 99 cards coherently execute one gameplan? | GP.9: Can opponents' archetypes be recognized and correctly responded to? |
+
+---
+
+### 14.5 Measurement Framework Integration
+
+**Deck Building Skills** are assessed from static deck analysis:
+
+| Source | Skills Covered |
+|--------|---------------|
+| Deck card data, CMC distribution | DB.1, DB.6 |
+| Color identity + fixing sources | DB.1 |
+| Formation graph completeness (§7) | DB.2 |
+| Tutor density, role redundancy (§7.6) | DB.7, DB.9 |
+| Archetype alignment score (§6.9) | DB.10, DB.8 |
+| Interaction count + cost breakdown | DB.4 |
+
+**Game Playing Skills** are assessed from replay analysis:
+
+| Source | Skills Covered |
+|--------|---------------|
+| Blunder detection (§9) | GP.7, GP.8, GP.10, GP.6 |
+| Learning helper statistics (§8) | GP.3, GP.4, GP.6, GP.10 |
+| State evaluation dimensions (§6) | GP.1, GP.4, GP.5, GP.6, GP.8 |
+| Delta evaluation before/after decisions (§10) | GP.1, GP.7, GP.8, GP.13 |
+
+---
+
+### 14.6 Composite Player Rating
+
+A player's overall skill rating is a weighted composite across both domains:
+
+```
+PlayerRating = w_db × DeckBuildingScore + w_gp × GamePlayScore
+
+DeckBuildingScore = weighted_avg(DB.1 … DB.10)
+GamePlayScore     = weighted_avg(GP.1 … GP.13)
+
+Default weights:  w_db = 0.30,  w_gp = 0.70
+```
+
+> Gameplay is weighted higher because in-game execution yields richer signal than construction analysis, and a skilled player extracting value from a sub-optimal deck reveals more about skill ceiling than building the deck in isolation.
+
+Scores are derived per-game and averaged across a history window:
+
+- **Deck Building:** 5–10 games with the same deck (construction is constant; variance comes from different pods and opponents).
+- **Gameplay:** 20+ games across multiple archetypes for a robust overall rating; archetype-specific gameplay ratings require 10+ games per archetype.
 
 ---
 

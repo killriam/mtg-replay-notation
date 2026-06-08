@@ -5,59 +5,6 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.0] - 2026-04-03
-
-### Added
-- **Library Draw Order** — `initial_state.objects` entries for library zones use JSON
-  insertion order as authoritative draw order; optional `notes.position` integer field
-  for serializers that do not guarantee insertion-order preservation
-- **`replay_config`** — New optional top-level field controlling library order enforcement
-  during Replay Mode: `force_library_order` (boolean) and `shuffle_restore`
-  (`"always"` | `"never"`)
-- **`replayed_at`** — New optional field in `meta` section; ISO 8601 timestamp set by
-  the replay launcher when a file is loaded for Replay Mode
-- **New Event Types** (v1.8.0):
-  - `CREATE_TOKEN` — Token permanent creation with source, P/T, type, controller
-  - `MANA_TAP` — Mana production from a source with `mana_produced` array
-  - `TRANSFORM` — Double-faced card transformation with `from_face` / `to_face`
-  - `COPY` — Spell or permanent copy with `original`, `copy_id`, `kind`
-- **Extended Player Actor IDs** — `L1Event.a` now supports P1–P99 (pattern-based)
-  instead of hardcoded P1–P4, enabling large multiplayer games
-- **Schema** — `replay-schema.json` updated to v1.8.0 with all above additions
-
-### Fixed
-- **Specification §16** — Fixed broken formatting: completed "Cast Options in Hand"
-  section, restored "Spell Velocity" header, removed duplicate §16.4/§16.5
-  "Implementation Guidelines" sections, fixed "Effective Turn to Boardstate Impact"
-  interleaved data requirements, merged sections into clean §16.3–§16.5 structure
-
-## [1.7.0] - 2026-04-01
-
-### Added
-- **Scenario Replay Mode** — New top-level `mode` field (`"full_game"` | `"scenario"`)
-  allows a file to represent a focused board-state scenario rather than a complete game
-- **`scenario` Object** — Required when `mode` is `"scenario"`; contains:
-  - `type` — Purpose of the scenario: `"interaction_check"`, `"rules_clarification"`,
-    or `"combo_outcome"`
-  - `title` — Short human-readable title (required)
-  - `description` — Full narrative description of the board state and context
-  - `question` — The specific rules or interaction question being answered
-  - `answer` — The authoritative answer
-  - `ruling_references` — Array of Comprehensive Rules citations (e.g. `"CR 702.2b"`)
-  - `tags` — Free-form keyword tags for search and filtering
-- **`rules_clarification` Learning Marker Category** — New value for
-  `LEARNING_MARKER.data.category` (and `learning_markers[].category`); used to flag
-  moments in a full game replay where a rules question arose; `notes` field should
-  contain the answer and CR references
-- **Schema** — `replay-schema.json` updated to v1.7.0:
-  - Added `mode` top-level property (enum: `"full_game"`, `"scenario"`)
-  - Added `scenario` top-level property referencing new `Scenario` definition
-  - Added `Scenario` definition with all fields above
-  - Extended `LearningMarker.category` enum with `"rules_clarification"`
-- **Specification** — New §18 "Scenario Replay Mode" with minimal scenario file example,
-  field reference tables, and guidance for linking `rules_clarification` markers to
-  standalone scenario files
-
 ## [1.6.1] - 2026-03-28
 
 ### Fixed

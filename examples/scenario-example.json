@@ -1,0 +1,34 @@
+{
+  "format": "mtg-replay",
+  "version": "1.6.0",
+  "spec_version": "1.6.0",
+  "mode": "scenario",
+  "meta": {
+    "game_id": "scenario-0001",
+    "timestamp": "2026-03-31T12:34:56Z",
+    "game_type": "Scenario",
+    "players": {
+      "P1": {"name": "Tester", "is_ai": false, "player_type": "Human", "starting_life": 20},
+      "P2": {"name": "Opponent", "is_ai": true, "player_type": "AI", "starting_life": 20}
+    }
+  },
+  "scenario": {
+    "description": "Check whether boots+equip-trigger combo applies before damage assignment for a creature that gains first strike.",
+    "purpose": "combo_outcome",
+    "question": "Will the target creature deal damage first and survive when blocked by a 2/2?",
+    "expected_outcomes": ["yes", "no"],
+    "notes": "Use this scenario for rules engine regression tests."
+  },
+  "card_index": {
+    "Basilisk Collar": {"name": "Basilisk Collar", "type": "Artifact", "oracle_text": "Equipped creature has deathtouch and lifelink."},
+    "Tarmogoyf": {"name": "Tarmogoyf", "type": "Creature - Lhurgoyf", "oracle_text": "..."}
+  },
+  "initial_state": {
+    "turn": 4,
+    "phase": "COMBAT",
+    "players": {
+      "P1": {"life": 10, "mana_pool": [], "objects": {"c1": {"card_ref": "Tarmogoyf", "controller": "P1", "owner": "P1", "zone": "battlefield", "tapped": false, "counters": {"+1/+1": 3}}}},
+      "P2": {"life": 12, "objects": {"c2": {"card_ref": "Basilisk Collar", "controller": "P1", "owner": "P1", "zone": "battlefield"}}}
+    }
+  }
+}

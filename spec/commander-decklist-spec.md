@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.0.0
+## Companion Specification v1.2.0
 
 **Status:** Stable
 **Published:** March 2026
@@ -54,7 +54,7 @@ A decklist file contains:
         /* Considered but not included cards */
     ],
     "deck_rules": {
-        /* Mulligan rules and combo declarations */
+        /* Mulligan rules, combo declarations, scenarios, and simulation config */
     }
 }
 ```
@@ -73,6 +73,7 @@ A decklist file contains:
         "created": "2026-03-11",
         "updated": "2026-03-11",
         "author": "Alice",
+        "source_url": "https://moxfield.com/decks/abc123",
         "description": "Superfriends deck built around Atraxa's proliferate ability."
     }
 }
@@ -89,6 +90,7 @@ A decklist file contains:
 | `created` | string | No | Creation date (ISO 8601 date, e.g., `"2026-03-11"`) |
 | `updated` | string | No | Last modification date (ISO 8601 date) |
 | `author` | string | No | Name or username of the deck builder |
+| `source_url` | string | No | URL of the external deck page this list was imported from (e.g. Moxfield, Archidekt) |
 | `description` | string | No | Free-text description of the deck strategy |
 
 ---
@@ -323,7 +325,9 @@ and used by replay analysis and coaching tools.
     "deck_rules": {
         "mulligan": { /* ... */ },
         "combos": [ /* ... */ ],
-        "dont_combos": [ /* ... */ ]
+        "dont_combos": [ /* ... */ ],
+        "scenarios": [ /* ... */ ],
+        "simulation": { /* ... */ }
     }
 }
 ```
@@ -529,6 +533,300 @@ flag situations where both cards are in play simultaneously.
 | `reason` | string | **Yes** | Explanation of why these cards conflict |
 | `severity` | string | No | `"critical"` \| `"major"` \| `"minor"` (default: `"major"`) |
 
+### 6.4 Scenarios
+
+The optional `scenarios` array documents strategic game states captured by the deck
+builder. Two sub-formats are supported: **hand-based** (opening hand + drawn turns) and
+**precondition-based** (arbitrary game state defined by conditions).
+
+#### 6.4.1 Scenario Types
+
+| `type` | Description |
+|--------|-------------|
+| `best_starting_hand` | 7-card opening hand + 3 drawn turns (guided wizard) |
+| `perfect_game` | 7-card opening hand + 10 drawn turns (full strategic ideal) |
+| `mid_game` | Arbitrary game state defined by preconditions |
+| `free_build` | Freeform board state with optional preconditions and focus |
+| `eval_sequence` | Multi-turn draw + play sequence for evaluation; can be forced or matched |
+
+#### 6.4.1a Scenario Mode
+
+All scenario types support an optional `mode` field that controls execution behaviour:
+
+| `mode` | Description |
+|--------|-------------|
+| `"forced"` | Forge sets a fixed library order so the exact draw sequence is executed. Card group references are resolved to concrete card names before play. |
+| `"look_for"` | Forge runs normally; the scenario is a pattern — the game is monitored and a match event is logged when the game state satisfies the scenario. Default. |
+
+#### 6.4.1b Card Reference Type
+
+Wherever a card name is expected (in `opening_hand`, `turns[].drawn`, `turns[].played`,
+`board_state.zones`, and `zone_requirements`) a **card reference** may be either:
+
+- a plain string `"Lightning Bolt"` — matches the exact card name
+- an object `{"group": "ramp"}` — matches any card whose `primary_mechanic` or
+  `additional_mechanics` includes the named mechanic group key
+
+Group references allow `look_for` scenarios to describe patterns independent of the
+specific card drawn, and allow `forced` scenarios to say "resolve this group slot to
+the first matching card in the deck list".
+
+#### 6.4.2 Hand-Based Scenario Format
+
+Used for `best_starting_hand` and `perfect_game` types. Documents which cards were in
+the opening hand and what was drawn and played each subsequent turn.
+
+```json
+{
+    "scenarios": [
+        {
+            "id": "scenario_best_hand_1",
+            "type": "best_starting_hand",
+            "name": "Ideal Doubling Season Opener",
+            "opening_hand": [
+                "Sol Ring",
+                "Arcane Signet",
+                "Command Tower",
+                "Forest",
+                "Plains",
+                "Doubling Season",
+                "Atraxa, Praetors' Voice"
+            ],
+            "turns": [
+                {
+                    "turn": 1,
+                    "drawn": "Smothering Tithe",
+                    "played": ["Sol Ring", "Command Tower"]
+                },
+                {
+                    "turn": 2,
+                    "drawn": "Rhystic Study",
+                    "played": ["Arcane Signet", "Forest"]
+                },
+                {
+                    "turn": 3,
+                    "drawn": "Deepglow Skate",
+                    "played": ["Plains", "Doubling Season"]
+                }
+            ]
+        }
+    ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string | **Yes** | Unique identifier for this scenario within the deck |
+| `type` | string | **Yes** | One of the scenario types (see §6.4.1) |
+| `name` | string | **Yes** | Human-readable scenario name |
+| `mode` | string | No | `"forced"` or `"look_for"` (see §6.4.1a). Default: `"look_for"` |
+| `opening_hand` | array | For hand-based | Card references in the opening hand (in draw order). See §6.4.1b. |
+| `turns` | array | No | Drawn and played cards per turn (see below) |
+| `board_state` | object | No | Explicit zone snapshot for this scenario (see §6.4.4) |
+
+**Turn entry fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `turn` | integer | **Yes** | Turn number (1 = first turn of the game) |
+| `drawn` | string or object | **Yes** | Card reference drawn at the start of this turn (see §6.4.1b) |
+| `played` | array | No | Card references played this turn, in cast order (see §6.4.1b) |
+
+#### 6.4.3 Precondition-Based Scenario Format
+
+Used for `mid_game` and `free_build` types. Describes the game state conditions under
+which a scenario applies rather than documenting a specific card sequence.
+
+```json
+{
+    "scenarios": [
+        {
+            "id": "scenario_turn4_engine",
+            "type": "mid_game",
+            "name": "Turn 4 Counter Engine Active",
+            "preconditions": {
+                "description": "Turn 4+, commander in play, 6 mana available, 2 ramp pieces on board",
+                "mana_available": 6,
+                "mana_colors": ["W", "U", "B", "G"],
+                "turn_number": 4,
+                "min_hand_size": 2,
+                "zone_requirements": [
+                    {
+                        "zone": "battlefield",
+                        "mechanic_groups": ["ramp"],
+                        "min_count": 2
+                    },
+                    {
+                        "zone": "battlefield",
+                        "card_names": ["Atraxa, Praetors' Voice"],
+                        "min_count": 1
+                    }
+                ]
+            },
+            "focus": {
+                "mechanic_groups": ["counters", "proliferate"],
+                "card_names": ["Doubling Season", "Deepglow Skate"],
+                "description": "Demonstrates how the counter engine doubles with Doubling Season"
+            }
+        }
+    ]
+}
+```
+
+**Preconditions fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `description` | string | No | Human-readable summary of required game state |
+| `mana_available` | integer | No | Total mana available (any color) |
+| `mana_colors` | array | No | Specific mana colors required (WUBRG letters) |
+| `turn_number` | integer | No | Turn number this scenario typically applies to |
+| `min_hand_size` | integer | No | Minimum number of cards in hand |
+| `zone_requirements` | array | No | Per-zone card or mechanic requirements (see below) |
+
+**Zone requirement fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `zone` | string | **Yes** | One of: `battlefield`, `hand`, `graveyard`, `commandZone`, `library`, `exile` |
+| `mechanic_groups` | array | No | Deck mechanic group keys satisfying this requirement |
+| `card_names` | array | No | Specific card names required in this zone |
+| `min_count` | integer | No | Minimum matching cards required (default: count of listed items) |
+
+Either `mechanic_groups` or `card_names` (or both) must be present in a zone requirement.
+
+**Focus fields:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mechanic_groups` | array | No | Deck mechanic group keys this scenario demonstrates |
+| `card_names` | array | No | Specific card names that are focal in this scenario |
+| `description` | string | No | Free-text description of what the scenario demonstrates |
+
+#### 6.4.4 Board State
+
+The optional `board_state` object captures an explicit (partial) zone snapshot. It
+complements `preconditions`: where `preconditions` defines conditions that must be met,
+`board_state` defines a concrete snapshot of zones and their contents.
+
+```json
+"board_state": {
+    "turn": 3,
+    "active_player": "self",
+    "zones": {
+        "hand": [
+            "Sol Ring",
+            {"group": "ramp"}
+        ],
+        "battlefield": [
+            "Command Tower",
+            {"group": "land"},
+            {"group": "land"}
+        ],
+        "graveyard": []
+    }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `turn` | integer | No | Turn number this board state applies to |
+| `active_player` | string | No | `"self"` \| `"opponent"` \| player name |
+| `zones` | object | No | Map of zone name → array of card references (see §6.4.1b) |
+
+Zone names: `hand`, `battlefield`, `graveyard`, `library`, `exile`, `commandZone`.
+
+#### 6.4.5 Eval Sequence Scenario Format
+
+The `eval_sequence` type combines a full opening hand + per-turn draw/play sequence
+with an optional board state. It is the primary scenario type for evaluation runs.
+
+The `7+3` shape is expressed as `opening_hand` of 7 + 3 `turns` entries.
+The `14` shape is expressed as `opening_hand` of 14 with no `turns`.
+
+```json
+{
+    "scenarios": [
+        {
+            "id": "eval_7plus3_aggro",
+            "type": "eval_sequence",
+            "name": "7+3 Aggro Opening",
+            "mode": "forced",
+            "opening_hand": [
+                "Mountain",
+                "Mountain",
+                {"group": "land"},
+                "Lightning Bolt",
+                {"group": "aggro"},
+                {"group": "aggro"},
+                {"group": "aggro"}
+            ],
+            "turns": [
+                {
+                    "turn": 1,
+                    "drawn": {"group": "land"},
+                    "played": ["Mountain", "Lightning Bolt"]
+                },
+                {
+                    "turn": 2,
+                    "drawn": {"group": "aggro"},
+                    "played": [{"group": "land"}, {"group": "aggro"}]
+                },
+                {
+                    "turn": 3,
+                    "drawn": {"group": "aggro"},
+                    "played": [{"group": "aggro"}]
+                }
+            ],
+            "focus": {
+                "mechanic_groups": ["aggro"],
+                "card_names": ["Lightning Bolt"],
+                "description": "Verify consistent aggro curve over 3 turns"
+            }
+        }
+    ]
+}
+```
+
+In `forced` mode Forge resolves each group reference to the first matching card in
+the deck list and builds the `forcedLibraryOrder` accordingly.
+In `look_for` mode (default) the turn sequence serves as a pattern: a match event is
+logged in the replay whenever the actual game state satisfies the sequence up to the
+current turn.
+
+### 6.5 Forge Simulation Config
+
+The optional `simulation` object configures how the Forge AI simulation tool should
+use this deck when running simulations. Forge consumes `.dck` plain-text decklists;
+this config is a companion layer that carries simulation parameters separately.
+
+```json
+{
+    "deck_rules": {
+        "simulation": {
+            "target": "forge",
+            "play_order": "random",
+            "difficulty": "ultimate",
+            "starting_life": 40,
+            "eval_scenario_ids": ["eval_7plus3_aggro", "eval_14_midrange"]
+        }
+    }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `target` | string | **Yes** | Must be `"forge"` (reserved for future simulation targets) |
+| `play_order` | string | No | `"play"` (go first) \| `"draw"` (go second) \| `"random"` (default) |
+| `difficulty` | string | No | AI difficulty: `"easy"` \| `"medium"` \| `"hard"` \| `"ultimate"` (default) |
+| `starting_life` | integer | No | Starting life total (default: `40` for Commander) |
+| `eval_scenario_ids` | array | No | IDs of `eval_sequence` scenarios to run. `forced` scenarios use a fixed library order; `look_for` scenarios run as pattern matchers. |
+| ~~`use_best_starting_hand`~~ | boolean | *Deprecated* | Replaced by `eval_scenario_ids`. Kept for v1.x compatibility. |
+| ~~`use_perfect_game`~~ | boolean | *Deprecated* | Replaced by `eval_scenario_ids`. Kept for v1.x compatibility. |
+
+`eval_scenario_ids` entries must reference scenario `id` values present in the
+`scenarios` array (see §6.4). Each referenced scenario must be of type `eval_sequence`.
+
 ---
 
 ## 7. Deck Hash
@@ -602,6 +900,24 @@ inline decklist over an external lookup.
 7. **Combo and don't-combo `id` values must be unique** within their respective arrays.
 8. **Mulligan threshold `round` values must be unique** within the `thresholds` array
    and monotonically increasing from 0.
+9. **Scenario `id` values must be unique** within the `scenarios` array.
+10. **Hand-based scenarios** (`best_starting_hand`, `perfect_game`) must include
+    `opening_hand` with 7 entries. `perfect_game` scenarios should have 10 turn entries;
+    `best_starting_hand` should have 3.
+11. **Precondition-based zone requirements** must include at least one of
+    `mechanic_groups` or `card_names`.
+12. **`use_best_starting_hand: true`** in `simulation` requires a `best_starting_hand`
+    scenario to be present; `use_perfect_game: true` requires a `perfect_game` scenario.
+    *(Deprecated — prefer `eval_scenario_ids`.)*
+13. **`eval_sequence` scenarios** must include `opening_hand`. `turns` is optional.
+14. **`eval_scenario_ids`** entries must each match an `id` in the `scenarios` array,
+    and the referenced scenario must be of type `eval_sequence`.
+15. **Group references** (`{"group": "..."}`) in card references must name a
+    `mechanic_group` key that exists in at least one card in the deck's `main` or
+    `commander` section.
+16. **`mode`** must be `"forced"` or `"look_for"` when present. In `forced` mode,
+    all group references in `opening_hand` and `turns[].drawn` must be resolvable to
+    at least one concrete card in the deck list.
 
 ---
 
@@ -610,15 +926,16 @@ inline decklist over an external lookup.
 ```json
 {
     "format": "mtg-commander-decklist",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "meta": {
         "deck_id": "atraxa-superfriends-v1",
         "deck_name": "Atraxa Superfriends",
         "format": "Commander",
         "colors": ["W", "U", "B", "G"],
         "created": "2026-03-11",
-        "updated": "2026-03-11",
+        "updated": "2026-04-12",
         "author": "Alice",
+        "source_url": "https://moxfield.com/decks/atraxa-superfriends-v1",
         "description": "Proliferate planeswalkers to their ultimate abilities."
     },
     "commander": [
@@ -788,7 +1105,99 @@ inline decklist over an external lookup.
                 "reason": "Teferi prevents opponents from casting spells at instant speed, so Rhystic Study's trigger can never be paid during the draw step sequence.",
                 "severity": "minor"
             }
-        ]
+        ],
+        "scenarios": [
+            {
+                "id": "scenario_best_hand_1",
+                "type": "best_starting_hand",
+                "name": "Ideal Doubling Season Opener",
+                "opening_hand": [
+                    "Sol Ring",
+                    "Arcane Signet",
+                    "Command Tower",
+                    "Forest",
+                    "Plains",
+                    "Doubling Season",
+                    "Atraxa, Praetors' Voice"
+                ],
+                "turns": [
+                    { "turn": 1, "drawn": "Smothering Tithe", "played": ["Sol Ring", "Command Tower"] },
+                    { "turn": 2, "drawn": "Rhystic Study", "played": ["Arcane Signet", "Forest"] },
+                    { "turn": 3, "drawn": "Deepglow Skate", "played": ["Plains", "Doubling Season"] }
+                ]
+            },
+            {
+                "id": "scenario_turn4_engine",
+                "type": "mid_game",
+                "name": "Turn 4 Counter Engine Active",
+                "mode": "look_for",
+                "preconditions": {
+                    "description": "Turn 4+, commander in play, 6 mana available, 2 ramp pieces on board",
+                    "mana_available": 6,
+                    "turn_number": 4,
+                    "zone_requirements": [
+                        {
+                            "zone": "battlefield",
+                            "mechanic_groups": ["ramp"],
+                            "min_count": 2
+                        },
+                        {
+                            "zone": "battlefield",
+                            "card_names": ["Atraxa, Praetors' Voice"],
+                            "min_count": 1
+                        }
+                    ]
+                },
+                "focus": {
+                    "mechanic_groups": ["counters", "proliferate"],
+                    "description": "Demonstrates how the counter engine activates at full speed"
+                }
+            },
+            {
+                "id": "eval_7plus3_superfriends",
+                "type": "eval_sequence",
+                "name": "7+3 Superfriends Opener",
+                "mode": "forced",
+                "opening_hand": [
+                    "Sol Ring",
+                    "Arcane Signet",
+                    "Command Tower",
+                    {"group": "land"},
+                    {"group": "proliferate"},
+                    {"group": "counters"},
+                    "Atraxa, Praetors' Voice"
+                ],
+                "turns": [
+                    {
+                        "turn": 1,
+                        "drawn": {"group": "ramp"},
+                        "played": ["Sol Ring", "Command Tower"]
+                    },
+                    {
+                        "turn": 2,
+                        "drawn": {"group": "proliferate"},
+                        "played": ["Arcane Signet", {"group": "land"}]
+                    },
+                    {
+                        "turn": 3,
+                        "drawn": {"group": "counters"},
+                        "played": [{"group": "land"}, {"group": "proliferate"}]
+                    }
+                ],
+                "focus": {
+                    "mechanic_groups": ["counters", "proliferate"],
+                    "card_names": ["Atraxa, Praetors' Voice"],
+                    "description": "Verify 7+3 superfriends curve with ramp into Atraxa"
+                }
+            }
+        ],
+        "simulation": {
+            "target": "forge",
+            "play_order": "random",
+            "difficulty": "ultimate",
+            "starting_life": 40,
+            "eval_scenario_ids": ["eval_7plus3_superfriends"]
+        }
     }
 }
 ```
@@ -799,6 +1208,8 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2.0 | 2026-04-12 | Add `meta.source_url`; add `eval_sequence` scenario type (§6.4.5); add scenario `mode` field (`forced`/`look_for`, §6.4.1a); add card reference type `{"group":...}` (§6.4.1b); add `board_state` field (§6.4.4); add `simulation.eval_scenario_ids`; deprecate `use_best_starting_hand`/`use_perfect_game`; add validation rules 13–16 |
+| 1.1.0 | 2026-03-31 | Add §6.4 Scenarios (hand-based + precondition-based) and §6.5 Forge Simulation Config; extend `deck_rules` with `scenarios[]` and `simulation`; add validation rules 9–12 |
 | 1.0.0 | 2026-03-11 | Initial specification |
 
 ---
