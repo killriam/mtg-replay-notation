@@ -5,6 +5,23 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-08-09
+
+### Documentation
+- **`forge-integration-guide.md`** — Added §0 (clarifying this guide covers two unrelated
+  pipelines) and §9, documenting the live, already-implemented "Scenario Viewer" pipeline
+  (`format: "mtg-replay"`, `version: "1.8.0"`, `mode: "scenario"`,
+  `scenario.type: "opening_hand_test"`) that `new-backend`'s `getForgeScenarioExport` and
+  `mamo-Connector`'s `playtest-scenario` deeplink actually use today. This format was previously
+  undocumented here — §§1–8 describe an older, unrelated, manual-setup mechanism
+  (`eval_sequence`/`best_starting_hand`/`perfect_game` via the `mtg-commander-decklist` export)
+  that this repo's own text already says Forge does not auto-follow. The new §9 points to the
+  authoritative field reference (`docs/SCENARIO_STARTING_HAND_FORMAT.md` in the Forge fork at
+  `github.com/killriam/forge`, branch `replay-Features`) rather than duplicating it, and flags an
+  unverified actor-string mismatch risk (§9.4) between what `new-backend` currently generates for
+  `events[].a` and what the scenario `.dck`'s actual filename/in-game lobby name would be.
+- No schema or field changes — `schema/replay-schema.json` and existing examples are unaffected.
+
 ## [1.6.1] - 2026-03-28
 
 ### Fixed

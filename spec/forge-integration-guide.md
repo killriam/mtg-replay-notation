@@ -5,6 +5,26 @@
 
 ---
 
+## 0. Two Separate Pipelines — Read This First
+
+This guide covers **two distinct handoffs** to Forge. Don't conflate them:
+
+- **§§1–8, "Export JSON" pipeline** — the user-triggered `mtg-commander-decklist` v1.2.0 JSON
+  download from MaMo's Playbook page. This is a **reference document**, not something Forge
+  reads automatically. As §7 already states, Forge's AI does not "follow" a `perfect_game`/
+  `best_starting_hand` turn sequence on its own — a human (or a custom script) applies it via
+  Forge's debug/cheat mode.
+- **§9, "Live Scenario Viewer" pipeline** — a **separate, already-implemented, machine-driven**
+  handoff: `mamoConnector://playtest-scenario/<deckId>?scenarioId=<id>` fetches a purpose-built
+  bundle from MaMo's backend, mamo-Connector writes it straight into Forge's own deck/gamelog
+  directories, then launches Forge. This is what "Perfect Game" and "Starting Hand" scenarios
+  built in Playbook's guided wizard actually use today. **This is the pipeline to implement
+  against in Forge** if the goal is "the scenario just plays out when Forge opens" rather than
+  "a human sets it up by hand." See §9 below — it does not use the `mtg-commander-decklist`
+  JSON shape described in §§1–6 at all; it has its own format.
+
+---
+
 ## 1. What Forge Expects
 
 Forge reads decks in a plain-text `.dck` format. It does not consume JSON directly.
@@ -360,3 +380,147 @@ Before handing a deck to Forge:
 
 See [eval-scenario-guide.md](./eval-scenario-guide.md) for the full concept reference
 and end-to-end testing steps.
+
+---
+
+## 9. The Live Scenario Viewer Pipeline (`opening_hand_test`, format v1.8.0)
+
+**Status: already implemented and tested on the Forge side — this is not a "please build this"
+brief, it's a "here's the contract, here's what to verify" one.**
+
+### 9.1 Where the Forge-side implementation actually lives
+
+Not in this repo, and not in `MaMo-Base` at all — it's in a **separate custom Forge fork**
+checked out locally at `C:\SWProjects\Forge` (`github.com/killriam/forge`, branch
+`replay-Features`, tracking upstream `Card-Forge/forge`). Key files there:
+
+- `docs/SCENARIO_STARTING_HAND_FORMAT.md` — the **authoritative field reference** for this format
+  (in German). Treat it as the source of truth over this section if the two ever disagree —
+  this section is a pointer to it, not a fork of it.
+- `forge-gui-desktop/.../screens/home/replay/CSubmenuScenario.java` — scans
+  `%AppData%\Forge\games\gamelogs\` for `*.json` files (any filename, no naming convention
+  required), keeps the ones `ReplayLogParser.isScenario()` accepts, lists them in a **"Replay
+  Scenario"** submenu (sibling to Puzzle Mode) for the user to pick and click **Start** —
+  this is a manual step in the GUI today, not auto-launched from the deeplink.
+- `forge-gui/.../ReplayLogParser.java` — parses the JSON.
+- `forge-game/.../log/model/Scenario.java`, `ScenarioLibrarySetup.java`,
+  `mulligan/ScenarioKeepMulligan.java` — apply the forced library order / opening hand / AI
+  mulligan-skip.
+- `docs/example_scenario_forced_sequence.json`, `ScenarioStartingHandTest.java` — worked,
+  passing examples.
+
+**§§1–8 of this guide (the `eval_sequence`/`best_starting_hand`/`perfect_game`
+`mtg-commander-decklist` export) describe a different, older, manual-setup mechanism and do not
+apply here** — see [§0](#0-two-separate-pipelines--read-this-first).
+
+### 9.2 What MaMo already hands off
+
+`new-backend`'s `getForgeScenarioExport` (`GET /api/deck/:deckId/forge-scenario/:scenarioId`,
+`CRUDDeckController.ts`) returns `{ deckName, dck, scenarioJson }`. `mamo-Connector`'s
+`create_deck_and_scenario_for_forge` (`deck.rs`) writes:
+
+| What | Where | Convention |
+|---|---|---|
+| `dck` | `%AppData%\Forge\decks\commander\<sanitized deckName>.dck` (Win); `~/.forge/Forge/decks/commander/...` (mac/Linux) | Same directory/writer every deck download uses |
+| `scenarioJson` | `%AppData%\Forge\games\gamelogs\Scenario_<sanitized deckName>.json` (Win); `~/.forge/Forge/games/gamelogs/...` (mac/Linux) | Filename is decorative — Forge scans the whole directory for any `.json`, so no collision risk even with the `Scenario_` prefix |
+
+Then launches Forge via `gui --format commander --deck <name> [--deck2 <name2>]` (`forge.rs`) —
+no scenario-specific CLI flag; the user opens the Replay Scenario submenu manually once Forge is
+up.
+
+### 9.3 The `scenarioJson` shape (matches Forge's parser as of this writing)
+
+```json
+{
+    "format": "mtg-replay",
+    "version": "1.8.0",
+    "mode": "scenario",
+    "meta": { "game_id": "string", "timestamp": "ISO 8601", "game_type": "commander" },
+    "scenario": {
+        "type": "opening_hand_test",
+        "title": "string",
+        "description": "string",
+        "question": "string",
+        "answer": "string",
+        "tags": ["string"],
+        "ruling_references": ["string"],
+        "player_count": 2,
+        "players": {
+            "P1": {
+                "commanders": ["string"],
+                "starting_hand": ["string"],
+                "first_draws": ["string"],
+                "battlefield": ["string"],
+                "starting_life": 40
+            },
+            "P2": { "starting_hand": [], "first_draws": [], "starting_life": 40 }
+        }
+    },
+    "events": [
+        { "i": 1, "t": "T1.MP1:1", "a": "string", "type": "PLAY_LAND", "data": { "card_name": "string", "targets": [] } }
+    ]
+}
+```
+
+- `scenario.players.PX.starting_hand` / `first_draws` go to the **front of that player's
+  library** (`ScenarioLibrarySetup.reorderLibraries()`), so the `.dck`'s `[Main]` card ordering
+  MaMo already produces (starting hand, then first draws, then the rest) isn't itself load-bearing
+  — Forge reorders by name lookup against these two arrays, not by `.dck` line order. A card
+  named here that isn't in the `.dck`'s card pool is skipped with a `WARN` log, not a crash.
+- `events[].t` = `"T<turn>.<phase>:<priority>"`. Only `MP1`/`BC`/`MP2` are ever emitted by the
+  current TurnWizard UI; `UP`/`DP`/`DC`/`EP` exist in the type system but nothing produces them
+  today.
+- **Empty turns are the intended way to say "no preference, AI decides."** Forge's own docs call
+  this **soft enforcement**: at each priority it checks whether the next queued event's card is
+  currently castable — if not, it's left in the queue and normal AI/human play happens for that
+  priority instead of forcing or blocking anything. A turn/phase with zero scripted events simply
+  has nothing in the queue, which is exactly "AI's own choice." (This directly confirms what we
+  already told the user about the "leave it empty = AI decides" behavior.)
+- `data.targets` is defined but **Forge's own parser doesn't consume it yet either** ("Phase 2 —
+  noch nicht implementiert") — so the fact that `buildEventsFromCards` never populates it from the
+  frontend's `selectedAbility`/`choiceText`/`targetSelections` fields is not currently a
+  functional gap on our side; it will become one once Forge's target support ships, worth
+  revisiting then.
+
+### 9.4 ⚠️ Open risk to verify — the `events[].a` actor string may never match
+
+Forge's doc is explicit: `events[].a` must equal the **actual in-game lobby name** of the player,
+or the forced sequence silently never fires (documented failure mode: "Forced Play Sequence wird
+nicht befolgt"). Three different name strings exist for what should be one identity, and none of
+them currently match:
+
+1. **The `.dck` filename on disk**: `sanitize_filename(deckName)` where `deckName` is the plain
+   `commanderdeckbase.deckname` — e.g. `Horror_ Dead is not an end.dck`. No username, no date.
+2. **The `.dck`'s own internal `[metadata] Name=` field**, set by `getForgeScenarioExport` to
+   `"Scenario: <scenario name>"` — e.g. `"Scenario: Perfect Game"`. Different from (1).
+3. **The actor string `buildEventsFromCards` builds**: `Ai(1)-<username> - <deckName>
+   (<today's date>)` — matching the `<Username> - <DeckName> (<Date>)` convention the **regular**
+   (non-scenario) deck-download path produces (there, `deck.rs`'s `create_deck_from_mamo_with_
+   progress` parses that exact string back out of the `.dck`'s own `Name=` line and writes the
+   file under that name) — but the scenario path never constructs or writes that convention
+   anywhere, so (3) matches neither (1) nor (2).
+
+None of the three currently agree, which — if Forge's runtime actor-matching for scenario mode
+does a strict string comparison — would mean scripted `events` silently never apply (games would
+still get the correct opening hand/draws, since that path doesn't depend on the actor string at
+all; only the turn-by-turn play scripting would be affected). **Before relying on this for
+anything beyond hand/draw testing**, confirm one way or the other by running an actual scripted
+scenario end-to-end and checking Forge's log for the same kind of confirmation line its own doc
+shows (`hand: 7/7, draws: 3/3, N event(s) for 1 player(s)` / "AI spielt exakt: ..."). If it turns
+out to matter, the fix is almost certainly on the `new-backend` side — either give the scenario
+`.dck` the same `<Username> - <DeckName> (<Date>)` naming convention as the regular export
+(so all three strings agree), or read back whatever Forge's scenario-mode player naming actually
+resolves to instead of assuming the regular-path convention applies unchanged.
+
+### 9.5 Practical checklist for testing this pipeline manually
+
+- [ ] `%AppData%\Forge\games\gamelogs\Scenario_<deckName>.json` exists and has
+      `"mode": "scenario"` at the top level (Forge's own troubleshooting note: this is the #1
+      reason a scenario doesn't show up in the Replay Scenario list at all)
+- [ ] Every `starting_hand`/`first_draws` card name matches the `.dck`'s card names exactly
+      (case differences are tolerated; the actual string must still resolve)
+- [ ] Commander cards are in `players.PX.commanders`, never in `starting_hand`/`first_draws`
+- [ ] If testing forced play sequence: confirm the `events[].a` value against §9.4 before
+      assuming a "skipped" scripted turn is a data bug rather than an actor-name mismatch
+- [ ] Forge → **Replay Mode → Scenario Viewer** to pick and start the scenario (this step isn't
+      automated by the deeplink today)
