@@ -457,11 +457,17 @@ up.
         }
     },
     "events": [
-        { "i": 1, "t": "T1.MP1:1", "a": "string", "type": "PLAY_LAND", "data": { "card_name": "string", "targets": [] } }
+        { "i": 1, "t": "T1.MP1:1", "a": "P1", "type": "PLAY_LAND", "data": { "card_name": "string", "targets": [] } }
     ]
 }
 ```
 
+- **`events[].a` is a plain seat id (`"P1"`, `"P2"`, …), matching the `scenario.players` keys —
+  not a constructed lobby-name string.** This is a **contract change from earlier drafts of
+  this guide** (see §9.4): Forge now resolves the id to whatever runtime name it actually
+  assigns that seat at launch time, so `buildEventsFromCards` should emit the same `"P1"`/`"P2"`
+  token it already uses to key `scenario.players` — no username/deck-name/date construction
+  needed, and no dependency on `.dck` naming conventions at all.
 - `scenario.players.PX.starting_hand` / `first_draws` go to the **front of that player's
   library** (`ScenarioLibrarySetup.reorderLibraries()`), so the `.dck`'s `[Main]` card ordering
   MaMo already produces (starting hand, then first draws, then the rest) isn't itself load-bearing
@@ -482,35 +488,42 @@ up.
   functional gap on our side; it will become one once Forge's target support ships, worth
   revisiting then.
 
-### 9.4 ⚠️ Open risk to verify — the `events[].a` actor string may never match
+### 9.4 ✅ Resolved (2026-08-10) — actor identity + GUI wiring fixed on the Forge side
 
-Forge's doc is explicit: `events[].a` must equal the **actual in-game lobby name** of the player,
-or the forced sequence silently never fires (documented failure mode: "Forced Play Sequence wird
-nicht befolgt"). Three different name strings exist for what should be one identity, and none of
-them currently match:
+An earlier draft of this section flagged two problems after auditing the Forge fork's actual
+code (not just its docs). Both are now fixed in `killriam/forge` on `replay-Features`:
 
-1. **The `.dck` filename on disk**: `sanitize_filename(deckName)` where `deckName` is the plain
-   `commanderdeckbase.deckname` — e.g. `Horror_ Dead is not an end.dck`. No username, no date.
-2. **The `.dck`'s own internal `[metadata] Name=` field**, set by `getForgeScenarioExport` to
-   `"Scenario: <scenario name>"` — e.g. `"Scenario: Perfect Game"`. Different from (1).
-3. **The actor string `buildEventsFromCards` builds**: `Ai(1)-<username> - <deckName>
-   (<today's date>)` — matching the `<Username> - <DeckName> (<Date>)` convention the **regular**
-   (non-scenario) deck-download path produces (there, `deck.rs`'s `create_deck_from_mamo_with_
-   progress` parses that exact string back out of the `.dck`'s own `Name=` line and writes the
-   file under that name) — but the scenario path never constructs or writes that convention
-   anywhere, so (3) matches neither (1) nor (2).
+1. **The GUI "Replay Scenario" submenu — the pipeline mamo-Connector actually drives per §9.2 —
+   never consumed `events` at all.** `CSubmenuScenario.launchScenario()` wired
+   `starting_hand`/`first_draws`/`commanders`/`battlefield`/`starting_life` but never called
+   anything that read the `events` array or set `GameRules.forcedPlaySequence`. Forced play
+   sequence only ran through the CLI `-s` flag (`SimulateMatch.java`), a headless entry point
+   MaMo doesn't use in production.
+2. **Even where `events` *was* read (the CLI `-s` path), the actor id was used as the lobby
+   name with no translation** (`String lobbyName = actor;` — a literal bug, not a doc gap): the
+   AI's forced-sequence lookup keys by `player.getLobbyPlayer().getName()`
+   (`Ai(N)-<deckName>` for CLI seats, or whatever name the GUI assigns), which never equals a
+   raw `"P1"`/`"P2"` token. So even the one path that ran forced sequences at all silently
+   never matched.
 
-None of the three currently agree, which — if Forge's runtime actor-matching for scenario mode
-does a strict string comparison — would mean scripted `events` silently never apply (games would
-still get the correct opening hand/draws, since that path doesn't depend on the actor string at
-all; only the turn-by-turn play scripting would be affected). **Before relying on this for
-anything beyond hand/draw testing**, confirm one way or the other by running an actual scripted
-scenario end-to-end and checking Forge's log for the same kind of confirmation line its own doc
-shows (`hand: 7/7, draws: 3/3, N event(s) for 1 player(s)` / "AI spielt exakt: ..."). If it turns
-out to matter, the fix is almost certainly on the `new-backend` side — either give the scenario
-`.dck` the same `<Username> - <DeckName> (<Date>)` naming convention as the regular export
-(so all three strings agree), or read back whatever Forge's scenario-mode player naming actually
-resolves to instead of assuming the regular-path convention applies unchanged.
+**The fix, rather than chasing a lobby-name string mamo-Connector would have to predict:**
+`events[].a` is now always a plain seat id (`"P1"`, `"P2"`, …) — see the updated §9.3 shape.
+Both `CSubmenuScenario` (GUI) and `SimulateMatch` (CLI `-s`) now parse `events` via a shared
+`ReplayLogParser.parseForcedSequenceEvents()`, then translate each id to whatever lobby name
+that launcher actually assigned the seat this run, before calling
+`GameRules.setForcedPlaySequence()` — the same field and the same `AiController` "soft
+enforcement" consumption logic already used and trusted by full-game `-r` Replay mode. Details
+and worked examples: `docs/SCENARIO_STARTING_HAND_FORMAT.md` (updated alongside this fix) and
+`forge-gui-desktop/src/test/java/forge/game/scenario/ScenarioForcedPlaySequenceTest.java` (new
+unit coverage for the id→lobby-name translation and event parsing — 8 tests, all passing; no
+existing scenario test regressed).
+
+**Action needed on the `new-backend`/mamo-Connector side:** update `buildEventsFromCards` (or
+wherever `events[].a` is populated) to emit the plain seat id (`"P1"`/`"P2"`, matching
+`scenario.players`' own keys) instead of any constructed lobby-name string. This is a
+simplification, not new work — the exporter already tracks which seat each event belongs to
+to build `scenario.players`; it no longer needs to know or reconstruct anything about Forge's
+internal naming conventions at all.
 
 ### 9.5 Practical checklist for testing this pipeline manually
 
@@ -520,7 +533,13 @@ resolves to instead of assuming the regular-path convention applies unchanged.
 - [ ] Every `starting_hand`/`first_draws` card name matches the `.dck`'s card names exactly
       (case differences are tolerated; the actual string must still resolve)
 - [ ] Commander cards are in `players.PX.commanders`, never in `starting_hand`/`first_draws`
-- [ ] If testing forced play sequence: confirm the `events[].a` value against §9.4 before
-      assuming a "skipped" scripted turn is a data bug rather than an actor-name mismatch
+- [ ] `events[].a` is a plain `"P1"`/`"P2"` seat id, not a constructed lobby-name string (see
+      §9.4 — `new-backend` needs to emit this; older exports using a lobby-name string will
+      silently not match under the current Forge build)
+- [ ] If testing forced play sequence: watch Forge's log for `Scenario: forced play sequence
+      set — N event(s) for M player(s)` (GUI) / `Scenario: Loaded forced play sequence — N
+      event(s) for M player(s)` (CLI) to confirm the array was even parsed, before assuming a
+      "skipped" scripted turn is a data bug — an uncastable next card is expected to stay
+      queued (soft enforcement), not an error
 - [ ] Forge → **Replay Mode → Scenario Viewer** to pick and start the scenario (this step isn't
       automated by the deeplink today)

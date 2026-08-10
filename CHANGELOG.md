@@ -5,6 +5,22 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-08-10
+
+### Fixed
+- **`forge-integration-guide.md` §9.4** — The `events[].a` actor-string mismatch flagged in
+  1.6.2 turned out to be worse than "unverified": the GUI Replay Scenario submenu (the pipeline
+  mamo-Connector actually drives) didn't consume `events` at all, and the one path that did
+  (CLI `-s`) used the raw player id as a lobby name with no translation, so it never matched
+  either. Fixed on the Forge side (`killriam/forge`, `replay-Features`) by redefining
+  `events[].a` as a plain seat id (`"P1"`/`"P2"`, matching `scenario.players`' own keys) that
+  each launcher translates internally to its actual runtime lobby name, instead of requiring
+  the exporter to predict/reconstruct that name. §9.3 and §9.4 rewritten accordingly; §9.5
+  checklist updated.
+- **Action item for `new-backend`/mamo-Connector**: `buildEventsFromCards` needs to emit the
+  plain seat id for `events[].a` rather than any constructed lobby-name string — see §9.4.
+  Not yet applied to that repo from this session (source not checked out in this workspace).
+
 ## [1.6.2] - 2026-08-09
 
 ### Documentation
