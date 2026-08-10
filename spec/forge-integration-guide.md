@@ -518,12 +518,20 @@ and worked examples: `docs/SCENARIO_STARTING_HAND_FORMAT.md` (updated alongside 
 unit coverage for the id→lobby-name translation and event parsing — 8 tests, all passing; no
 existing scenario test regressed).
 
-**Action needed on the `new-backend`/mamo-Connector side:** update `buildEventsFromCards` (or
-wherever `events[].a` is populated) to emit the plain seat id (`"P1"`/`"P2"`, matching
-`scenario.players`' own keys) instead of any constructed lobby-name string. This is a
-simplification, not new work — the exporter already tracks which seat each event belongs to
-to build `scenario.players`; it no longer needs to know or reconstruct anything about Forge's
-internal naming conventions at all.
+**✅ `new-backend` side applied (2026-08-10, commit `a34a607`):** `buildEventsFromCards` now
+hardcodes `a: 'P1'` — Playbook has no concept of scripting another seat's plays, so every
+event's actor is always the scenario owner's own `"P1"` seat id, matching the key
+`getForgeScenarioExport` already uses for that player's `scenario.players` entry. The
+now-dead username/deckDate DB lookup that only existed to build the old constructed string was
+removed along with it (one less query per export). The legacy `castOrder` fallback path already
+emitted `"P1"` directly and needed no change. New test asserts the actor is always `"P1"`.
+
+**This closes the loop end-to-end**, verified independently on the Forge side: a live
+`sim -d ... -scenario ...` CLI run with a scripted `PLAY_LAND` event applied correctly — the
+saved replay JSON shows `{"a":"P1","type":"PLAY_LAND","data":{"card_name":"Swamp"}}` on the
+correct player's first turn, out of a hand where the AI had no independent reason to prefer
+that card. Scripted plays from the ▶ Play in Forge (scenario) flow should now actually apply
+instead of silently no-oping.
 
 ### 9.5 Practical checklist for testing this pipeline manually
 
@@ -533,9 +541,9 @@ internal naming conventions at all.
 - [ ] Every `starting_hand`/`first_draws` card name matches the `.dck`'s card names exactly
       (case differences are tolerated; the actual string must still resolve)
 - [ ] Commander cards are in `players.PX.commanders`, never in `starting_hand`/`first_draws`
-- [ ] `events[].a` is a plain `"P1"`/`"P2"` seat id, not a constructed lobby-name string (see
-      §9.4 — `new-backend` needs to emit this; older exports using a lobby-name string will
-      silently not match under the current Forge build)
+- [ ] `events[].a` is a plain `"P1"`/`"P2"` seat id, not a constructed lobby-name string —
+      `new-backend` emits this correctly as of commit `a34a607` (see §9.4); only relevant if
+      inspecting an export cached/generated before that fix
 - [ ] If testing forced play sequence: watch Forge's log for `Scenario: forced play sequence
       set — N event(s) for M player(s)` (GUI) / `Scenario: Loaded forced play sequence — N
       event(s) for M player(s)` (CLI) to confirm the array was even parsed, before assuming a

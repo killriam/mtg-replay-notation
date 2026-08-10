@@ -17,9 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   each launcher translates internally to its actual runtime lobby name, instead of requiring
   the exporter to predict/reconstruct that name. §9.3 and §9.4 rewritten accordingly; §9.5
   checklist updated.
-- **Action item for `new-backend`/mamo-Connector**: `buildEventsFromCards` needs to emit the
-  plain seat id for `events[].a` rather than any constructed lobby-name string — see §9.4.
-  Not yet applied to that repo from this session (source not checked out in this workspace).
+- **`new-backend`/mamo-Connector — applied 2026-08-10, commit `a34a607`**: `buildEventsFromCards`
+  now emits the plain seat id `"P1"` for `events[].a` instead of the constructed
+  `Ai(1)-{username} - {deckName} ({date})` string, closing the loop from the fix above. The
+  dead username/deckDate DB lookup that only existed to build that string was removed too. New
+  test asserts the actor is always `"P1"`. Verified end-to-end on the Forge side via a live CLI
+  scenario run: the saved replay JSON shows the scripted `PLAY_LAND` event applying correctly.
+  Real fix to a live feature — scripted plays from ▶ Play in Forge (scenario) were being
+  silently dropped before this.
 
 ## [1.6.2] - 2026-08-09
 
