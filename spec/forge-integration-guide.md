@@ -22,6 +22,15 @@ This guide covers **two distinct handoffs** to Forge. Don't conflate them:
   against in Forge** if the goal is "the scenario just plays out when Forge opens" rather than
   "a human sets it up by hand." See §9 below — it does not use the `mtg-commander-decklist`
   JSON shape described in §§1–6 at all; it has its own format.
+- **§10, "Constructed-Match Scenario Toggle" — a concept/gap document, NOT a third implemented
+  pipeline.** Product-side, MaMo presents scenario playback in Forge as two options: (1) §9's
+  dedicated single-scenario playtest ("just set up this scenario and let me play on from
+  there" — real, described above) and (2) attaching a scenario's forced draw order to a normal
+  constructed match, with a further human-plays-it-as-a-hint vs. AI-plays-it-scripted split
+  depending on who controls that seat. Only (1) exists today. §10 defines (2) precisely, audits
+  what's already reusable from §9 vs. what's a genuine gap in every layer (schema, backend,
+  connector, Forge), and specifies the requirements each non-Forge layer would need to meet —
+  it does not include a Forge-side implementation, which is out of this document's scope.
 
 ---
 
@@ -551,3 +560,199 @@ instead of silently no-oping.
       queued (soft enforcement), not an error
 - [ ] Forge → **Replay Mode → Scenario Viewer** to pick and start the scenario (this step isn't
       automated by the deeplink today)
+
+---
+
+## 10. Constructed-Match Scenario Toggle — Concept, Definition & Gap (NOT YET IMPLEMENTED)
+
+**Status: none of this exists yet. This section defines the concept precisely, audits what §9
+already gives you for free, and specifies requirements for the non-Forge layers. Forge-side
+implementation is explicitly out of scope here — see §10.4.4, which hands that off rather than
+designs it.**
+
+### 10.0 Why this section exists
+
+MaMo's Playbook page frames two distinct ways a scenario ends up in Forge:
+
+1. **"Scenario playout"** — §9's Live Scenario Viewer. Launches a dedicated, single-purpose
+   session for exactly this scenario; the user picks it from Forge's own "Replay Scenario"
+   submenu once Forge is open. **Real, working, described above.**
+2. **"Constructed match with a scenario toggle"** — start a normal constructed match (two real
+   decks, either can be a real opponent) and additionally tick "use this deck's Perfect Game /
+   Best Starting Hand scenario" so that seat's draws follow the scripted line instead of a
+   random shuffle. **Does not exist as a working pipeline anywhere.** The UI that looks like it
+   configures this (`ForgeSimulationEditor.tsx`'s "Use best starting hand"/"Use perfect game"
+   checkboxes, MaMoFrontend) only edits a config block (`deck_rules.simulation`) that gets
+   written into the manually-downloaded `mtg-commander-decklist` JSON (§§1–8) — nothing
+   downstream of that download ever reads it back. See
+   `MaMoFrontend/specs/gap-forge-constructed-match-scenario-toggle.md` for the UI-side detail.
+
+This section is about (2). It also introduces a distinction that doesn't exist in either
+pipeline today: **who is actually driving the scripted seat.**
+
+### 10.1 Definition — what "played" should mean, per seat, per controller
+
+Every scenario turn (`turns[].drawn` / `.played` / `.actions` — see AC-EXP-007/AC-EXP-008 in
+MaMoFrontend's `playbook.spec.md` for how these are built from `ScenarioCard.turnAdded` /
+`eventTiming`) already answers "what happened this turn" for the scenario's own author. What it
+should *cause to happen* in a live Forge match depends on who's sitting in that seat:
+
+| Seat controller | Draw order (`opening_hand` + `turns[].drawn`) | Play sequence (`turns[].played` + `.actions`) |
+|---|---|---|
+| **Human** | **Forced.** Same mechanism §9 already uses (`ScenarioLibrarySetup.reorderLibraries()`) — the scripted cards are stacked to the top of that seat's library, so the human draws exactly what the scenario says. | **Hint only, never forced.** The human sees (however Forge's UI chooses to surface it — §10.4.4) what the scenario *intended* to be played this turn, but decides and executes every action themselves. Nothing about their input is blocked, auto-played, or overridden. |
+| **AI** | **Forced.** Identical mechanism, no seat-specific difference. | **Scripted — the AI performs it.** Reuses the exact `GameRules.setForcedPlaySequence()` + `AiController` soft-enforcement path §9.3/§9.4 already built and verified: at each priority, if the next queued event's card is currently castable, the AI plays it; if not, it's left queued and the AI falls back to its own judgment for that priority (never blocks, never forces an illegal play). An empty turn/phase in `turns[]`/`actions[]` means "no scripted preference — AI decides normally," exactly as §9.3 already documents. |
+
+The right column is the entire concept this section is closing a gap on. The left column (draw
+order) is **not** a gap — it's the same mechanism §9 already ships, for either seat, unchanged.
+
+### 10.2 What already exists vs. what's missing
+
+**Already built and reusable, unchanged:**
+- Forced library reordering (`ScenarioLibrarySetup`) — seat-agnostic per the Forge integration
+  doc pointer in §9.1; works for whichever seat it's told to target.
+- Forced play-sequence + soft enforcement (`GameRules.setForcedPlaySequence()` /
+  `AiController`) — already verified end-to-end for P1 in a scenario-playout launch (§9.4).
+  Architecturally this is exactly the "AI-scripted" behavior column 10.1 wants — the open
+  question (§10.4.4) is only whether it's already AI-only by construction (it's driven through
+  `AiController`, which a human-controlled seat's own input never goes through) or whether an
+  explicit guard needs adding so it's never mistakenly applied to force a human's actions.
+
+**Missing in every layer:**
+- **No seat-controller concept anywhere.** Nothing in the schema, UI, backend, or connector
+  records or asks "is this seat a human or the AI?" `events[].a` (§9.3) identifies *which seat*
+  a scripted action belongs to, never *how* that seat is driven.
+- **No opponent-seat scripting at all, for either controller type.** `getForgeScenarioExport`
+  hardcodes `players.P2: { starting_hand: [], first_draws: [] }` unconditionally
+  (`CRUDDeckController.ts`), and `buildEventsFromCards` hardcodes every event's actor to
+  `"P1"` with an explicit code comment that Playbook has no concept of scripting a second seat
+  (`scenarioEventBuilder.ts`, quoted in the research this section is based on). This blocks the
+  "AI plays out *its own* Perfect Game deck as my opponent" case entirely, not just the
+  human-hint half.
+- **No cross-deck scenario reference.** Validation Rule 14 (`commander-decklist-spec.md` §9)
+  restricts `eval_scenario_ids` to scenarios inside the *same* deck's own `scenarios` array.
+  There's no way today to say "attach *this other deck's* Perfect Game scenario to the seat
+  playing that other deck."
+- **No hint-surfacing mechanism.** Nothing anywhere — schema, Connector, or (as far as this
+  workspace can determine) Forge itself — defines how a human player would see "the scenario
+  says X was meant to be played this turn" while playing. This is a genuine open UI question,
+  not just a missing field.
+- **No real launch path for a normal constructed match with a scenario attached at all.** Every
+  existing deeplink either launches a plain constructed match with no scenario data
+  (`playtest/{deckId}`) or a dedicated single-scenario session that isn't a real match against
+  an opponent's own deck (`playtest-scenario/{deckId}`, §9). Nothing launches "constructed match,
+  deck A vs. deck B, with an optional scenario attached to either seat."
+
+### 10.3 Proposed data-model shape (schema — proposed, not a version bump yet)
+
+Extend the `scenarioJson` shape (§9.3) so each populated player entry can declare who's driving
+it. This section proposes the shape; it is **not** a ratified schema change — no version bump
+has been made, and this shouldn't be treated as stable until implemented and verified the same
+way §9 was.
+
+```json
+{
+    "scenario": {
+        "players": {
+            "P1": {
+                "controlled_by": "human",
+                "commanders": ["..."],
+                "starting_hand": ["..."],
+                "first_draws": ["..."]
+            },
+            "P2": {
+                "controlled_by": "ai",
+                "commanders": ["..."],
+                "starting_hand": ["..."],
+                "first_draws": ["..."]
+            }
+        }
+    },
+    "events": [
+        { "i": 1, "t": "T1.MP1:1", "a": "P2", "type": "PLAY_LAND", "data": { "card_name": "Forest" } }
+    ]
+}
+```
+
+- `controlled_by` is deliberately **not** a per-event field — it's per-player, since a seat's
+  controller doesn't change mid-game. `events[].a` continues to just mean "which seat," as it
+  does today; the consuming side looks up that seat's `controlled_by` to decide whether the
+  matching event is a hint or a forced action.
+- **Open question, not resolved here:** should `controlled_by` live in the JSON at all, or
+  should the launcher (mamo-Connector) simply already know it — since it's whoever launched the
+  match choosing "I'll play this seat, AI plays that one" in Forge's own New Game dialog — and
+  pass it as launch context instead of baking it into the scenario file? Embedding it in the
+  JSON is simpler to reason about (self-contained, replay-able, testable in isolation); passing
+  it as launch context avoids ever having a JSON file whose `controlled_by` claim disagrees with
+  who Forge actually assigned to that seat when the match starts. Whoever implements this needs
+  to pick one — not something to guess at from outside Forge's own New Game flow.
+
+### 10.4 Requirements for each layer
+
+None of the following is implemented by this change. Each is a requirement the corresponding
+repo/team would need to satisfy; this document does not implement any of them.
+
+#### 10.4.1 new-backend
+
+- A new or extended export endpoint that, unlike `getForgeScenarioExport` (single deck, always
+  scenario-owner-as-P1, P2 always empty), accepts **two** deck+scenario pairs — one per seat —
+  and returns both `players.P1`/`players.P2` populated when a scenario is attached to that seat.
+- A relaxed, explicitly-scoped version of Validation Rule 14 for this use case only: a scenario
+  ID may reference a scenario belonging to a *different* deck when that deck is the one assigned
+  to that seat in this launch. The existing same-deck-only rule should stay as-is for
+  `eval_scenario_ids` inside a single deck's own simulation config — this is a new, additional
+  allowance, not a loosening of the existing rule.
+
+#### 10.4.2 mamo-Connector
+
+- A new or extended deeplink for "real constructed match, optionally with a scenario attached
+  per seat" — distinct from `playtest-scenario` (§9, always a dedicated single-scenario session)
+  and from `resolve_opponent_deck_path`'s existing tiered opponent-resolution (explicit deck2 →
+  archenemy → curated pool → none), which was built for scenario-playout, not for a symmetric
+  two-real-decks match.
+- Must be able to write **both** seats' populated scenario bundles to Forge's gamelog directory
+  when both sides have a scenario attached (today's writer, `create_deck_and_scenario_for_forge`
+  in `deck.rs`, only ever populates one).
+- Needs to resolve `controlled_by` per §10.3's open question before it can decide what to write
+  or how to launch Forge — this is a prerequisite, not something the Connector can route around.
+
+#### 10.4.3 Forge (spec-only — hand-off to the Forge team, no implementation here)
+
+- **Human seat:** apply forced library order only (`ScenarioLibrarySetup`, already built and
+  reusable as-is). Confirm — don't assume — whether `setForcedPlaySequence`/`AiController` soft
+  enforcement already only ever engages for AI-driven decision-making (in which case a
+  human-controlled seat is naturally unaffected by forced play-sequence data with zero new
+  guard code) or whether an explicit "skip forced-play-sequence application for a human seat"
+  check needs adding. This is the single most load-bearing open question in this whole section —
+  everything else in the human-hint column of §10.1 depends on the answer.
+- **A hint surface for the human seat.** Needs a Forge-side UI decision (sidebar panel, tooltip
+  on the current turn, log line — any of these would satisfy the requirement). The only
+  requirement from this side of the integration is that the human seat's current-turn
+  `drawn`/`played`/`actions` data reaches wherever Forge decides to display it; the visual design
+  is entirely Forge's call.
+- **AI seat:** reuse `setForcedPlaySequence` + soft enforcement exactly as already built and
+  verified for P1 in §9.3/§9.4 — no new Forge mechanism needed here, only extending which seat
+  it's allowed to key off (today implicitly whichever seat scenario-playout always assigns as
+  P1; this needs to work for whichever seat `controlled_by: "ai"` actually lands on).
+
+#### 10.4.4 MaMoFrontend
+
+- Product decision needed on `ForgeSimulationEditor.tsx` (not made here — flagged for the
+  product owner): either (a) rewire its "Use best starting hand"/"Use perfect game" checkboxes
+  to trigger the new deeplink once 10.4.1–10.4.3 exist, or (b) keep it as a reference/manual-
+  setup config editor only, and relabel the UI so it stops reading as a live toggle it isn't.
+  See the MaMoFrontend gap file linked in §10.0 for the current-state detail this decision is
+  needed against.
+- A picker letting the user attach the **opponent's own** saved scenario (not just their own
+  deck's), once 10.4.1's cross-deck export support exists.
+- Some UI to set `controlled_by` per seat — or, if §10.3's open question resolves toward "launch
+  context, not JSON," this may not need a MaMoFrontend-side field at all and could instead be
+  implied by which deck the user picked as "my deck" vs. "opponent."
+
+### 10.5 What you already get today without any of this
+
+§9's existing pipeline already delivers most of the human-hint *feel* — forced draw order plus
+non-blocking soft-enforced play-sequence hints — for the scenario owner's own seat, in a
+dedicated single-scenario session. What it doesn't give you: a real match against an opponent's
+own deck, an opponent who plays out *their own* scripted line, or any way to attach a scenario
+to a normal constructed-match launch instead of the dedicated Scenario Viewer flow. Closing
+those gaps is everything in §10.2–10.4 above.

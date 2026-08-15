@@ -5,6 +5,25 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-08-15
+
+### Documentation
+- **`forge-integration-guide.md`** — Added §10, a concept/gap document (not an implemented
+  pipeline) for a third scenario-in-Forge use case: attaching a scenario's forced draw order to
+  a normal constructed match, with a human-plays-it-as-a-hint vs. AI-plays-it-scripted split
+  depending on who controls the scripted seat. Audits what §9's already-built mechanisms
+  (`ScenarioLibrarySetup`, `setForcedPlaySequence` + `AiController` soft enforcement) already
+  cover for free vs. what's a genuine gap in every layer — no `controlled_by`/seat-role concept
+  exists anywhere yet, `getForgeScenarioExport`/`buildEventsFromCards` hardcode the opponent
+  seat (P2) empty with no scripting support at all, and there's no cross-deck scenario reference
+  (Validation Rule 14 stays same-deck-only for the existing `eval_scenario_ids` use case; §10
+  proposes a scoped, additional allowance for this new one). Specifies requirements for
+  `new-backend`, `mamo-Connector`, and `MaMoFrontend`; Forge-side implementation is explicitly
+  handed off, not designed here (§10.4.3 lists open questions for that team, doesn't answer
+  them). §0 updated with a one-paragraph pointer distinguishing this from §9's real pipeline.
+  Proposed JSON shape in §10.3 is not a ratified schema change — no version bump beyond this
+  changelog/doc entry.
+
 ## [1.6.3] - 2026-08-10
 
 ### Fixed
