@@ -2,7 +2,7 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "$id": "https://github.com/Killriam/mtg-replay-notation/schema/commander-decklist-schema.json",
     "title": "MTG Commander Decklist Notation",
-    "description": "Schema for MTG Commander Decklist Notation v1.0.0",
+    "description": "Schema for MTG Commander Decklist Notation. Covers spec features through v1.2.0 (deck_rules.scenarios); the \"version\" field on documents validated by this schema is a semver string, not tied to this description.",
     "type": "object",
     "required": ["format", "version", "meta", "commander", "main"],
     "properties": {
@@ -146,6 +146,11 @@
                     "type": "array",
                     "items": { "$ref": "#/definitions/DontComboDeclaration" },
                     "description": "Known anti-synergies and conflicting card pairs"
+                },
+                "scenarios": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/DecklistScenario" },
+                    "description": "Strategic game states captured by the deck builder — opening hands, play sequences, board-state preconditions, or evaluation sequences (see spec §6.4)"
                 }
             }
         },
@@ -289,6 +294,169 @@
                     "enum": ["critical", "major", "minor"],
                     "description": "How badly the anti-synergy affects the deck (default: 'major')"
                 }
+            }
+        },
+        "CardRef": {
+            "description": "A card reference: either an exact card name, or a mechanic-group selector matching any card whose primary_mechanic/additional_mechanics includes the named group (see spec §6.4.1b)",
+            "oneOf": [
+                { "type": "string", "description": "Exact English card name" },
+                {
+                    "type": "object",
+                    "required": ["group"],
+                    "additionalProperties": false,
+                    "properties": {
+                        "group": { "type": "string", "description": "Mechanic group key to match" }
+                    }
+                }
+            ]
+        },
+        "ScenarioTurnEntry": {
+            "type": "object",
+            "required": ["turn"],
+            "description": "Drawn and played cards for a single turn of a hand-based/eval_sequence scenario",
+            "properties": {
+                "turn": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Turn number (1 = first turn of the game)"
+                },
+                "drawn": {
+                    "$ref": "#/definitions/CardRef",
+                    "description": "Card reference drawn at the start of this turn. Optional — a turn scripting only attack/activate actions against an existing permanent, with no new card drawn, can omit this."
+                },
+                "played": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/CardRef" },
+                    "description": "Card references played this turn, in cast order"
+                },
+                "actions": {
+                    "type": "array",
+                    "description": "Attack/activate actions against a permanent already in play this turn. Local extension (originating in MaMoFrontend's decklistExport.ts) — not yet part of every consumer's implementation of this spec.",
+                    "items": {
+                        "type": "object",
+                        "required": ["type", "source"],
+                        "properties": {
+                            "type": { "type": "string", "enum": ["ATTACK", "ACTIVATE"] },
+                            "source": {
+                                "$ref": "#/definitions/CardRef",
+                                "description": "The permanent already in play performing the action"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "ScenarioZoneRequirement": {
+            "type": "object",
+            "required": ["zone"],
+            "description": "A required card/mechanic-group presence in a zone, used by precondition-based scenarios",
+            "properties": {
+                "zone": {
+                    "type": "string",
+                    "enum": ["battlefield", "hand", "graveyard", "commandZone", "library", "exile"]
+                },
+                "mechanic_groups": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Deck mechanic group keys satisfying this requirement"
+                },
+                "card_names": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Specific card names required in this zone"
+                },
+                "min_count": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Minimum matching cards required (default: count of listed items)"
+                }
+            }
+        },
+        "ScenarioPreconditions": {
+            "type": "object",
+            "description": "Game-state conditions under which a mid_game/free_build scenario applies",
+            "properties": {
+                "description": { "type": "string", "description": "Human-readable summary of required game state" },
+                "mana_available": { "type": "integer", "description": "Total mana available (any color)" },
+                "mana_colors": {
+                    "type": "array",
+                    "items": { "type": "string", "enum": ["W", "U", "B", "R", "G"] },
+                    "description": "Specific mana colors required"
+                },
+                "turn_number": { "type": "integer", "description": "Turn number this scenario typically applies to" },
+                "min_hand_size": { "type": "integer", "description": "Minimum number of cards in hand" },
+                "zone_requirements": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/ScenarioZoneRequirement" },
+                    "description": "Per-zone card or mechanic requirements"
+                }
+            }
+        },
+        "ScenarioFocus": {
+            "type": "object",
+            "description": "What a scenario demonstrates — specific cards, deck mechanic groups, or both",
+            "properties": {
+                "mechanic_groups": { "type": "array", "items": { "type": "string" } },
+                "card_names": { "type": "array", "items": { "type": "string" } },
+                "description": { "type": "string", "description": "Free-text description of what the scenario demonstrates" }
+            }
+        },
+        "ScenarioBoardState": {
+            "type": "object",
+            "description": "An explicit (partial) zone snapshot for a scenario, complementing preconditions",
+            "properties": {
+                "turn": { "type": "integer", "description": "Turn number this board state applies to" },
+                "active_player": { "type": "string", "description": "'self' | 'opponent' | player name" },
+                "zones": {
+                    "type": "object",
+                    "description": "Map of zone name (hand/battlefield/graveyard/library/exile/commandZone) to card references",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": { "$ref": "#/definitions/CardRef" }
+                    }
+                }
+            }
+        },
+        "DecklistScenario": {
+            "type": "object",
+            "required": ["id", "type", "name"],
+            "description": "A strategic game state captured by the deck builder (see spec §6.4)",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique identifier for this scenario within the deck"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["best_starting_hand", "perfect_game", "mid_game", "free_build", "eval_sequence"],
+                    "description": "Scenario type (see spec §6.4.1)"
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable scenario name"
+                },
+                "deck_id": {
+                    "type": "string",
+                    "description": "Owning deck's identifier. Optional and normally implicit — a scenario embedded in a deck's own exported document belongs to that document's meta.deck_id. Only needed when a scenario reference crosses into another deck's context, e.g. attaching an opponent's own Perfect Game scenario to a constructed match (see forge-integration-guide.md §10, proposed — not yet a live pipeline)."
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["forced", "look_for"],
+                    "description": "Execution mode: 'forced' sets a fixed library order; 'look_for' (default) monitors for a pattern match (see spec §6.4.1a)"
+                },
+                "opening_hand": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/CardRef" },
+                    "description": "Card references in the opening hand, in draw order (hand-based/eval_sequence types)"
+                },
+                "turns": {
+                    "type": "array",
+                    "items": { "$ref": "#/definitions/ScenarioTurnEntry" },
+                    "description": "Drawn and played cards per turn (hand-based/eval_sequence types)"
+                },
+                "board_state": { "$ref": "#/definitions/ScenarioBoardState" },
+                "preconditions": { "$ref": "#/definitions/ScenarioPreconditions" },
+                "focus": { "$ref": "#/definitions/ScenarioFocus" }
             }
         }
     }

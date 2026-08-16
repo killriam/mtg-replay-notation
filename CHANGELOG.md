@@ -5,6 +5,37 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] - 2026-08-16
+
+### Fixed
+- **`schema/commander-decklist-schema.json` didn't validate `deck_rules.scenarios` at all** — the
+  markdown spec (§6.4) has documented `id`/`type`/`name` as required per scenario since v1.2.0,
+  but the JSON Schema file (still self-described as "v1.0.0") had no `scenarios` property on
+  `DeckRules` and no `DecklistScenario` definition, so a scenario missing its type or name (or
+  the whole `scenarios` array being malformed) would silently pass schema validation. Added
+  `DecklistScenario`, `CardRef` (string or `{"group": "..."}`), `ScenarioTurnEntry`,
+  `ScenarioZoneRequirement`, `ScenarioPreconditions`, `ScenarioFocus`, and `ScenarioBoardState`
+  definitions, wired `scenarios` into `DeckRules`. Verified against the spec's own three
+  documented examples (`best_starting_hand`, `mid_game`, `eval_sequence`) — all validate; a
+  scenario missing `type`/`name` correctly fails.
+- **`turns[].drawn` schema/spec mismatch** — the field table said `drawn` was required, but
+  `MaMoFrontend`'s own implementation (and its `playbook.spec.md` AC-EXP-007) had already
+  relaxed this to optional, since a turn scripting only an attack/activate action against an
+  existing permanent has no new card to report. Schema and §6.4.2's field table both now mark
+  `drawn` optional, matching what's actually shipped.
+- **`turns[].actions`** (attack/activate actions, `{type, source}`) — implemented in
+  MaMoFrontend's export pipeline and documented there as a "local extension… not yet coordinated
+  into the shared spec" (`playbook.spec.md` AC-EXP-007). Now formally part of both the schema and
+  §6.4.2's field table.
+
+### Added
+- **`DecklistScenario.deck_id`** (optional) — a scenario's owning deck reference. Normally
+  implicit (a scenario embedded in a deck's own exported document belongs to that document's
+  `meta.deck_id`) and omitted; only meaningful once a scenario reference can cross into another
+  deck's context, e.g. attaching an opponent's own Perfect Game scenario to a constructed match.
+  See `forge-integration-guide.md` §10 (proposed, not yet a live pipeline) for the use case this
+  is meant to support.
+
 ## [1.6.4] - 2026-08-15
 
 ### Documentation

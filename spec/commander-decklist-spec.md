@@ -619,6 +619,7 @@ the opening hand and what was drawn and played each subsequent turn.
 | `id` | string | **Yes** | Unique identifier for this scenario within the deck |
 | `type` | string | **Yes** | One of the scenario types (see §6.4.1) |
 | `name` | string | **Yes** | Human-readable scenario name |
+| `deck_id` | string | No | Owning deck's identifier. Normally implicit and omitted — a scenario embedded in a deck's own exported document belongs to that document's own `meta.deck_id`. Only needed when a scenario reference crosses into another deck's context (e.g. attaching an opponent's own Perfect Game scenario to a constructed match — see [forge-integration-guide.md](./forge-integration-guide.md) §10, a proposed, not-yet-implemented pipeline). |
 | `mode` | string | No | `"forced"` or `"look_for"` (see §6.4.1a). Default: `"look_for"` |
 | `opening_hand` | array | For hand-based | Card references in the opening hand (in draw order). See §6.4.1b. |
 | `turns` | array | No | Drawn and played cards per turn (see below) |
@@ -629,8 +630,13 @@ the opening hand and what was drawn and played each subsequent turn.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `turn` | integer | **Yes** | Turn number (1 = first turn of the game) |
-| `drawn` | string or object | **Yes** | Card reference drawn at the start of this turn (see §6.4.1b) |
+| `drawn` | string or object | No | Card reference drawn at the start of this turn (see §6.4.1b). Omit for a turn that only scripts `actions` (below) against an existing permanent, with no new card drawn. |
 | `played` | array | No | Card references played this turn, in cast order (see §6.4.1b) |
+| `actions` | array | No | Attack/activate actions against a permanent already in play this turn — `{"type": "ATTACK" \| "ACTIVATE", "source": <card reference>}`. Local extension originating in MaMoFrontend's export pipeline; not yet implemented by every consumer of this spec. |
+
+`drawn` was documented as required in earlier drafts of this spec; relaxed 2026-08-16 to match
+what every real implementation already does — a turn-by-turn placement UI can legitimately
+schedule a turn with only an attack/activate action and no newly drawn/played card at all.
 
 #### 6.4.3 Precondition-Based Scenario Format
 
