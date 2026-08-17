@@ -5,6 +5,19 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.7] - 2026-08-17
+
+### Added
+- **`forge-integration-guide.md` §11 (new, proposal only): desktop release jar naming.** Forge's
+  release jar filename is currently static across every release
+  (`forge-gui-desktop-2.0.14-SNAPSHOT-jar-with-dependencies.jar`, unchanged until the next
+  `versionCode` bump) - the direct cause of an already-hit "mamo-Connector launched a stale
+  cached build" confusion, since nothing in the filename distinguishes one release from the next.
+  Proposes 4 options (build-timestamp suffix / git-hash suffix / both / a sidecar version file)
+  with a recommendation, and specifies the pattern-matching change mamo-Connector needs regardless
+  of which option ships, since the filename becoming variable is the point. Nothing in Forge's
+  build has changed yet - this is flagged for mamo-Connector's team before the Forge side moves.
+
 ## [1.6.6] - 2026-08-17
 
 ### Fixed

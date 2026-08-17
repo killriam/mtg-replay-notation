@@ -840,3 +840,72 @@ dedicated single-scenario session. What it doesn't give you: a real match agains
 own deck, an opponent who plays out *their own* scripted line, or any way to attach a scenario
 to a normal constructed-match launch instead of the dedicated Scenario Viewer flow. Closing
 those gaps is everything in §10.2–10.4 above.
+
+---
+
+## 11. Desktop Release Artifact Naming — Proposal (NOT YET IMPLEMENTED)
+
+**Status: proposal only. Nothing below is implemented in `killriam/forge` yet.** Written up here
+because the fix requires a coordinated change on mamo-Connector's side (or whatever component
+locates/installs the Forge jar) — flagging it for that team before touching Forge's build.
+
+### 11.0 The problem
+
+Forge's desktop release jar is currently named with a **static** version string that never
+changes between releases: `forge-gui-desktop-2.0.14-SNAPSHOT-jar-with-dependencies.jar`. It stays
+exactly this name across every build until `versionCode` in the root `pom.xml` is bumped (rare —
+it's been `2.0.14` for months of releases). This is a real, already-hit problem: a stale local
+copy is indistinguishable by filename from a fresh one, which directly caused a "MamoConnector
+launched Forge but it was running an old build" confusion during development of the features in
+this guide's §9.
+
+By contrast, Forge's **in-app version banner** already shows something more specific —
+`2.0.14-SNAPSHOT-08.16-1837` — because `forge-gui-desktop/pom.xml`'s `snapshot-version` property
+(regex-derived from `revision`, suffixing `-SNAPSHOT` with a `MM.dd-HHmm` build timestamp) is used
+for the jar's `Implementation-Version` manifest attribute. It's just never applied to the jar's
+own **filename**. (The Android and installer builds *do* apply this same property to their output
+filenames already — desktop is the odd one out.)
+
+The GitHub Release itself is already stable and doesn't need to change: it's always published
+under the `replay-features-latest` tag (force-moved on each push), so
+`.../releases/download/replay-features-latest/MaMoForge-portable.zip` as a download URL is
+unaffected by anything below. This proposal only changes what the jar *inside* that zip is named.
+
+### 11.1 Naming options
+
+| # | Example filename | Source data | Notes |
+|---|---|---|---|
+| A | `forge-gui-desktop-2.0.14-SNAPSHOT-08.16-1837-jar-with-dependencies.jar` | `${snapshot-version}` (already computed, already shown in-app) | Smallest Forge-side change — one `<finalName>` line. Filename always matches what the running app reports as its own version. |
+| B | `forge-gui-desktop-2.0.14-SNAPSHOT-g618f7dc-jar-with-dependencies.jar` | short git commit hash (already computed at build time, e.g. the `Git short hash: ...` build log line) | Unambiguous exact-commit traceability; no timestamp-collision edge case across parallel CI runs. Less immediately human-readable ("when was this built?") without a lookup. |
+| C | `forge-gui-desktop-2.0.14-SNAPSHOT-08.16-1837-g618f7dc-jar-with-dependencies.jar` | both of the above | Most information, longest name. Recommended if mamo-Connector wants to log/display build provenance, not just detect staleness. |
+| D | *(jar filename unchanged)* + a small `VERSION.txt`/`latest.json` release asset with version/hash/timestamp | new file, no jar rename | Zero change to the `java -jar ...` invocation path; mamo-Connector reads the sidecar file instead. Doesn't fix the "the extracted folder always looks identical" confusion by itself, and still requires a mamo-Connector-side change (reading a new file) — so it doesn't avoid coordination, it just relocates it. |
+
+**Recommendation: Option A**, for two reasons — it's already computed and already trusted (it's
+the exact string the app prints about itself on startup, so "jar filename" and "app's own version
+report" can never disagree), and it requires the smallest Forge-side diff. Option C is a
+reasonable upgrade if commit-level traceability matters more than filename brevity; A and C are
+not mutually exclusive to switch between later since both derive from data Forge already computes.
+
+### 11.2 What changes for mamo-Connector regardless of which option is picked
+
+Whichever option ships, **the jar filename becomes variable between releases** — that's the
+entire point. Any code that currently assumes/hardcodes the literal string
+`forge-gui-desktop-2.0.14-SNAPSHOT-jar-with-dependencies.jar` needs to switch to locating it by
+pattern after extracting `MaMoForge-portable.zip`, e.g. (pseudocode, adjust to whatever language
+mamo-Connector is in):
+
+```
+jar = glob("forge-gui-desktop-*-jar-with-dependencies.jar", inside=extracted_dir)[0]
+run: java -jar {jar} ...
+```
+
+This is the same approach Forge's own `build-release.yml` already uses internally
+(`find forge-gui-desktop/target -name "forge-gui-desktop-*-jar-with-dependencies.jar"`) — it
+doesn't hardcode the exact name either, for exactly this reason.
+
+If mamo-Connector currently determines "is my local Forge install stale?" by anything other than
+comparing the jar's actual last-modified time or content hash, this is also the natural point to
+switch that check to parsing the new filename (or the manifest's `Implementation-Version`, which
+already carries the same information and works today, before this proposal - see
+`BuildInfo.getVersionString()`/`BuildInfo.getGitCommit()` in `forge-core`, callable at runtime
+without needing to touch the filename at all).
