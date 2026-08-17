@@ -5,6 +5,15 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.8] - 2026-08-17
+
+### Added
+- **`MEMO-forge-jar-naming.md`** — short, action-oriented notice for mamo-Connector: §11's
+  proposed Option A (build-timestamp-suffixed jar filename) shipped in `killriam/forge`
+  `replay-Features` commit `d2bc12ba3dc`. States what changed, what mamo-Connector needs to do
+  (glob instead of hardcoding the jar filename), and what didn't change (download URL, zip
+  structure). §11 itself now points at this commit as resolved rather than proposed.
+
 ## [1.6.7] - 2026-08-17
 
 ### Added

@@ -843,11 +843,15 @@ those gaps is everything in §10.2–10.4 above.
 
 ---
 
-## 11. Desktop Release Artifact Naming — Proposal (NOT YET IMPLEMENTED)
+## 11. Desktop Release Artifact Naming
 
-**Status: proposal only. Nothing below is implemented in `killriam/forge` yet.** Written up here
-because the fix requires a coordinated change on mamo-Connector's side (or whatever component
-locates/installs the Forge jar) — flagging it for that team before touching Forge's build.
+**Status: ✅ Option A shipped (2026-08-17)** — `killriam/forge` `replay-Features` commit
+`d2bc12ba3dc`. `forge-gui-desktop`'s release jar filename now carries a build-timestamp suffix
+(`${snapshot-version}`, e.g. `forge-gui-desktop-2.0.14-SNAPSHOT-08.17-0700-jar-with-dependencies
+.jar`) instead of the static name it had before. **See `MEMO-forge-jar-naming.md` at this repo's
+root for the short, action-oriented version** (what mamo-Connector needs to do: glob instead of
+hardcoding the filename). The rest of this section is kept as the original proposal/rationale for
+reference — options B/C/D below were considered and not chosen.
 
 ### 11.0 The problem
 
