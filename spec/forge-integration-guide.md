@@ -561,9 +561,93 @@ instead of silently no-oping.
 - [ ] Forge → **Replay Mode → Scenario Viewer** to pick and start the scenario (this step isn't
       automated by the deeplink today)
 
+### 9.6 CAST event `cost`/`x`/`choices` — recorded by Forge's Demo Play, not yet consumed on replay
+
+**Status: recording works and is spec-conformant; replay of a scripted sequence still ignores
+these fields (soft-enforcement matches by `card_name` only, same as it always has).**
+
+Forge's "Demo Play" feature (Investigate Scenarios → select a scenario → "Demo Play (record
+actions)") applies a scenario's forced draw order to the human seat, lets them actually play the
+hand out, and records the playthrough — the intended workflow for *authoring* a scenario's
+`events[]` array by playing a good line once instead of hand-writing timestamps and card names.
+Until now, the recorder (`ReplayEventLogger`) only captured `card_name` for CAST/ACTIVATE events —
+nothing about what a spell targeted, what it cost beyond mana, or what X was chosen. For a spell
+like Metamorphosis (`sacrifice a creature; add X mana … where X = the sacrificed creature's
+toughness`), the exported snippet had no way to say *which* creature or *what* X — an author had
+to reconstruct that by hand from the full recording.
+
+**Root cause, not just a missing feature:** the fix needed wasn't new capture logic — it already
+existed and had for a while. `ReplayNotationExporter` (Forge's separate JSON-notation exporter,
+attached via `Match.enableReplayNotation`) has had `getAdditionalCosts()`/`getAlternativeCostType()`
+methods computing exactly `kicker`/`buyback`/`X=<n>`/etc. from a real `SpellAbility` object since
+before this fix. The problem: `GameEventSpellAbilityCast` (the event both this exporter and Demo
+Play's recorder subscribe to) only ever carried `SpellAbilityView`/`StackItemView` — lightweight
+Trackable views for the UI — never the real `SpellAbility`. Its one call site
+(`GameLogFormatter.visit(GameEventSpellAbilityCast)`) always passed `null` for it, so that cost
+logic was dead code in practice: correct, tested-in-isolation, and never actually reachable with
+real data.
+
+**Fix (`killriam/forge`, `replay-Features`, commit `9e02627a51d`):** `GameEventSpellAbilityCast`
+gained a `realSa` field, populated at its single construction site
+(`MagicStack.push()`, which already had the real `SpellAbility` right there). Both consumers now
+use it — `ReplayNotationExporter`'s cost logic finally runs, and `ReplayEventLogger` builds a CAST
+event's `cost`/`x`/`choices` following this spec's own §CAST Event schema (`MTG-REPLAY-NOTATION.md`):
+
+```json
+{
+  "type": "CAST",
+  "data": {
+    "card_name": "Metamorphosis",
+    "cost": { "mana": "0", "additional": ["X=4"], "alternative": null },
+    "x": 4,
+    "choices": { "sacrifice": ["c5"] }
+  }
+}
+```
+
+`choices.sacrifice` is a Forge-specific addition (not yet in the core spec's documented `choices`
+shape) — cards sacrificed as an additional cost, tracked via a new `GameEventCardSacrificed`
+listener, buffered and attached to the *next* CAST/ACTIVATE event within the same phase. This is a
+heuristic, not a guaranteed causal link: it can misattribute if an unrelated sacrifice happens in
+the same phase before the next cast. Good enough for the common "one action at a time" case Demo
+Play is meant for; not something to build automated tooling on top of without re-verifying.
+
+**What's still simplified vs. this spec's full schema:**
+- `targets` — a flat array of resolved names, not the spec's `{"slot": "...", "obj": "P2"}` object
+  form. No slot/role information is captured, just *what* was targeted.
+- `modes` — never populated (Forge doesn't currently expose modal-spell choices through this path).
+- The extracted scenario `events[]` snippet (what `DemoPlaySequenceExtractor` actually writes for
+  an author to paste back into a scenario file) further flattens all of this into
+  `data.targets`/`data.x`/`data.sacrifice` — simpler than the raw recording's nested `cost`/
+  `choices`, since scenario files are meant to be hand-edited.
+- **None of `targets`/`x`/`choices.sacrifice` are consumed when a forced `events[]` sequence is
+  replayed** (`AiController`'s soft-enforcement still matches purely on `card_name` — see §9.4).
+  Recording ahead of consumption is deliberate: it makes the data visible to a human author now,
+  without requiring the replay-side work (and its own precision questions — e.g. what happens
+  when a recorded target is no longer legal) to land first.
+
+Verified: `forge-gui/src/test/java/forge/game/DemoPlaySequenceExtractorTest
+.testExtractPlayerEvents_resolvesTargetsXAndSacrificeFromRealLogShape` mirrors this exact log
+shape end-to-end (card-id → name resolution via `card_index`, `x` passthrough, `choices.sacrifice`
+→ `data.sacrifice`) — added specifically because an earlier draft of the extractor read these
+fields from the wrong JSON nesting level and would never have resolved anything from a real
+recording; the test caught it before release.
+
 ---
 
-## 10. Constructed-Match Scenario Toggle — Concept, Definition & Gap (NOT YET IMPLEMENTED)
+## 10. Constructed-Match Scenario Toggle — Concept, Definition & Gap
+
+> **⚠️ This section's "NOT YET IMPLEMENTED" status (below) needs re-verification against
+> `killriam/forge`'s current `replay-Features` branch.** Evidence from a later, separate work
+> session on the Forge side suggests §10.4.3's hand-off has at least partially landed:
+> `PlayerPanel.java` has a per-seat scenario picker (`scenarioPickerComboBox`,
+> `populateScenarioComboBox`) reading a deck's `Scenario=` metadata key,
+> `docs/SCENARIO_STARTING_HAND_FORMAT.md` documents a "Von einem Deck referenzieren" workflow
+> matching §10.1's per-seat/per-controller definition, and `HostedMatch`/`GameLobby` show related
+> wiring. This has **not** been independently re-audited end-to-end for this changelog entry the
+> way §9.4's fix was — treat the implementation-status claims below as unverified until someone
+> does that audit and updates this section properly (or confirms it's still accurate and removes
+> this note).
 
 **Status: none of this exists yet. This section defines the concept precisely, audits what §9
 already gives you for free, and specifies requirements for the non-Forge layers. Forge-side

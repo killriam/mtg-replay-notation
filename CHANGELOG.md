@@ -5,6 +5,34 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-08-17
+
+### Fixed
+- **`forge-integration-guide.md` §9.6 (new): Forge's CAST event `cost`/`x`/`choices` capture was
+  wired but unreachable.** `GameEventSpellAbilityCast` (the event both Forge's separate
+  `ReplayNotationExporter` and its Demo Play recorder subscribe to) only ever carried
+  `SpellAbilityView`/`StackItemView`, never the real `SpellAbility` - so the one call site that
+  could have supplied real cost/X-value data always passed `null`, making
+  `ReplayNotationExporter.getAdditionalCosts()`/`getXManaCostPaid()` dead code despite being
+  correct and already implemented. Fixed on the Forge side (`killriam/forge`,
+  `replay-Features`, commit `9e02627a51d`) by carrying the real `SpellAbility` on the event; Demo
+  Play recordings now populate `cost.mana`/`cost.additional`/`cost.alternative`/`x` per this
+  spec's §CAST Event schema, plus a Forge-specific `choices.sacrifice` extension for cards
+  sacrificed as an additional cost (e.g. Metamorphosis). Not yet consumed when a scripted
+  `events[]` sequence is replayed - see §9.6 for the full writeup, known simplifications
+  (flat `targets` names instead of `{slot, obj}` objects, no `modes` capture), and test coverage.
+- **§10's "NOT YET IMPLEMENTED" status flagged as needing re-verification** - later Forge-side
+  work appears to have at least partially implemented the constructed-match scenario toggle
+  (`PlayerPanel.java` scenario picker, `docs/SCENARIO_STARTING_HAND_FORMAT.md`'s "Von einem Deck
+  referenzieren"), but this hasn't been independently audited end-to-end the way §9.4 was. Added
+  a warning note pending that audit rather than asserting either status without verification.
+
+### Housekeeping
+- Forge's local submodule checkout of this repo (`killriam/forge/mtg-replay-notation`) had drifted
+  3 months behind this canonical copy (pinned at `d023626`, 2026-05-19). Synced to `e8f0cd8`
+  (2026-08-16) and documented submodule init/refresh steps in Forge's `GETTING_STARTED.md`, which
+  previously mentioned the submodule in passing but never explained how to populate or refresh it.
+
 ## [1.6.5] - 2026-08-16
 
 ### Fixed
