@@ -1,9 +1,9 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.5.0
+## Format Specification v1.9.0
 
 **Status:** Stable  
-**Published:** February 2026  
+**Published:** August 2026  
 **Purpose:** Human-readable specification for understanding MTG game replay files
 
 **Version History:**
@@ -14,6 +14,12 @@
 - **1.3.0** (February 2026): Added `LEARNING_MARKER` event and `learning_markers` top-level section for player-placed game state bookmarks
 - **1.4.0** (February 2026): Added `deck_link` with revision anchor to player metadata
 - **1.5.0** (February 2026): Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` event types; extended player metadata with `is_ai`, `player_type`, `starting_life`
+- **1.6.0** (March 2026): Added Commander Decklist Notation companion spec (`spec/commander-decklist-spec.md`), `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files
+- **1.6.1** (March 2026): Schema parity (`oracle_text`, `power`, `toughness`, `subtypes`), full schemas for `PLAY_LAND`, `ACTIVATE`, `TRIGGER`, `TAP`, `COUNTERS`, `DECLARE_ATTACKERS`, `DECLARE_BLOCKERS`, `DISCARD`, `PASS_PRIORITY`, `CHOOSE`, `STATE_BASED`, `RANDOM`
+- **1.6.6** (August 2026): CAST event `cost.mana`/`cost.additional`/`cost.alternative`/`x`/`choices.sacrifice` capture; seat ID standard (`"P1"`, `"P2"`) in `events[].a`
+- **1.7.0** (August 2026): Added `mode` field (`"full_game"` | `"scenario"`), `scenario` definition object, and `rules_clarification` learning marker category
+- **1.8.0** (August 2026): Structured scenario starting hands, first draws, commanders, battlefield, starting life, and top-level forced play sequences
+- **1.9.0** (August 2026): Multiplayer team support (`team` in `meta.players`)
 
 ---
 
@@ -35,8 +41,9 @@ A replay file contains:
 ```json
 {
     "format": "mtg-replay",
-    "version": "1.5.0",
-    "spec_version": "1.5.0",
+    "version": "1.9.0",
+    "spec_version": "1.9.0",
+    "mode": "full_game",
     "meta": {
         /* Game metadata */
     },
@@ -64,6 +71,12 @@ A replay file contains:
     ],
     "game_summary": {
         /* Pre-computed game-wide statistics (v1.5.0+) */
+    },
+    "scenario": {
+        /* Scenario definition when mode == "scenario" (v1.7.0+) */
+    },
+    "decklist": {
+        /* Optional embedded commander decklist map per player (v1.6.0+) */
     }
 }
 ```
@@ -197,6 +210,7 @@ Each player entry contains:
 - `is_ai` — Boolean indicating whether this player is an AI (v1.5.0+)
 - `player_type` — String: `"Human"` or `"AI"` (v1.5.0+)
 - `starting_life` — Starting life total for this player (v1.5.0+)
+- `team` — Optional 1-indexed integer identifying the player's team in multiplayer team formats (e.g. `1`, `2` for Two-Headed Giant / team games) (v1.9.0+)
 
 ### 4.2 Deck Link Format
 
@@ -1463,6 +1477,7 @@ Recorded inline in the event log when the player places a marker:
 | `mistake` | Player believes they made an error here |
 | `turning_point` | Moment the game shifted |
 | `interesting_interaction` | Notable rules or card interaction |
+| `rules_clarification` | Rules clarification question, trigger dispute, or judge call (v1.7.0+) |
 | `sideboard_note` | Insight for sideboarding |
 | `general` | Uncategorized bookmark |
 
@@ -2500,7 +2515,108 @@ for the same player, consumers should prefer the inline `decklist`.
 
 ---
 
-## 18. Version History
+## 18. Scenario & Playtest Notation (v1.7.0+, v1.8.0+)
+
+The replay notation supports standalone scenario definitions and scripted playtests through the `mode: "scenario"` top-level flag and the companion `scenario` object.
+
+### 18.1 Top-Level Mode Field
+
+```json
+{
+    "format": "mtg-replay",
+    "version": "1.9.0",
+    "spec_version": "1.9.0",
+    "mode": "scenario"
+}
+```
+
+- `"full_game"` (default) — Standard complete game replay
+- `"scenario"` — Scenario definition or test challenge
+
+### 18.2 Scenario Object
+
+When `mode == "scenario"`, the file includes a top-level `scenario` object:
+
+```json
+{
+    "scenario": {
+        "id": "scenario-uuid",
+        "type": "opening_hand_test",
+        "name": "Pride of Hull Clade Opening Play",
+        "deck_id": "deck-uuid",
+        "description": "Evaluate opening hand ramp into high-toughness creatures and card draw",
+        "question": "Can you cast Rush of Knowledge drawing 11 cards on turn 3?",
+        "answer": "Yes, via Metamorphosis sacrificing The Pride of Hull Clade into Arbor Adherent.",
+        "tags": ["commander", "ramp", "combo"],
+        "ruling_references": ["CR 107.3m"],
+        "player_count": 2,
+        "players": {
+            "P1": {
+                "starting_hand": ["Command Tower", "Shield Sphere", "Ornithopter", "Phyrexian Walker", "Metamorphosis", "Arbor Adherent", "Rush of Knowledge"],
+                "first_draws": ["Psychosis Crawler", "City of Shadows", "Walking Bulwark"],
+                "commanders": ["The Pride of Hull Clade"],
+                "battlefield": [],
+                "starting_life": 40
+            },
+            "P2": {
+                "starting_hand": ["Plains", "Island", "Azure Beastbinder", "Mulldrifter"],
+                "first_draws": ["Solitude"],
+                "commanders": [],
+                "battlefield": [],
+                "starting_life": 40
+            }
+        }
+    }
+}
+```
+
+**Scenario Fields:**
+- `id` — Unique identifier for the scenario
+- `type` — Scenario classification: `opening_hand_test`, `interaction_check`, `rules_clarification`, `combo_outcome`
+- `name` / `title` — Human-readable name of the scenario
+- `deck_id` — Optional owning deck identifier
+- `description` — Scenario background or context
+- `question` — Problem or decision presented to the player
+- `answer` — Intended solution or outcome explanation
+- `tags` — Categorization tags
+- `ruling_references` — Relevant Comprehensive Rules references (e.g. `CR 608.2`)
+- `player_count` — Total players involved (defaults to 2)
+- `players` (v1.8.0+) — Structured player setup per seat (`P1`, `P2`, ...):
+  - `starting_hand` — Ordered list of card names in opening hand
+  - `first_draws` — Ordered list of card names stacked on top of library to be drawn
+  - `commanders` — Card names in command zone
+  - `battlefield` — Permanents starting in play
+  - `starting_life` — Starting life total
+
+### 18.3 Forced Play Sequences (v1.8.0+)
+
+Scenarios may include a top-level `events` array containing a scripted sequence of opening plays (e.g. `PLAY_LAND`, `CAST`, `ACTIVATE`). Actors are standardized to plain seat IDs (`a: "P1"`, `a: "P2"`) so replay and test runners can deterministically execute the play sequence.
+
+---
+
+## 19. Multiplayer Team Support (v1.9.0+)
+
+Multiplayer team formats (such as Two-Headed Giant or team Commander) are supported via the optional `team` integer in `meta.players`:
+
+```json
+{
+    "meta": {
+        "game_type": "Two-Headed Giant",
+        "players": {
+            "P1": { "name": "Alice", "team": 1, "is_ai": false },
+            "P2": { "name": "Bob", "team": 1, "is_ai": false },
+            "P3": { "name": "Charlie", "team": 2, "is_ai": true },
+            "P4": { "name": "Dana", "team": 2, "is_ai": true }
+        }
+    }
+}
+```
+
+- `team` — 1-indexed positive integer identifying shared team membership.
+
+---
+
+## 20. Version History
 
 | Version | Date       | Changes               |
 | ------- | ---------- | --------------------- |
@@ -2512,10 +2628,15 @@ for the same player, consumers should prefer the inline `decklist`.
 | 1.4.0   | 2026-02-21 | Added `deck_link` with revision anchor to player metadata |
 | 1.5.0   | 2026-02-22 | Renamed `log_l1` to `events`; added `spec_version`, `per_turn_summary`, `game_summary`; new `DRAW` and `GAME_START` events; extended player metadata |
 | 1.6.0   | 2026-03-11 | Added Commander Decklist Notation companion spec; `deck_rules` with mulligan scoring, combos, and anti-synergies; optional inline `decklist` in replay files |
+| 1.6.1   | 2026-03-28 | Schema parity: added `oracle_text`, `power`, `toughness`, `subtypes`; added schemas for `PLAY_LAND`, `ACTIVATE`, `TRIGGER`, `TAP`, `COUNTERS`, `DECLARE_ATTACKERS`, `DECLARE_BLOCKERS`, `DISCARD`, `PASS_PRIORITY`, `CHOOSE`, `STATE_BASED`, `RANDOM` |
+| 1.6.6   | 2026-08-17 | CAST event `cost.mana`/`cost.additional`/`cost.alternative`/`x`/`choices.sacrifice` capture; seat ID standard (`"P1"`, `"P2"`) in `events[].a` |
+| 1.7.0   | 2026-08-18 | Added `mode` field (`"full_game"` vs `"scenario"`), top-level `scenario` object definition, and `rules_clarification` learning marker category |
+| 1.8.0   | 2026-08-18 | Structured scenario starting hands, first draws, commanders, battlefield, starting life, and top-level forced play sequences |
+| 1.9.0   | 2026-08-19 | Added multiplayer team support (`team` in `meta.players`) |
 
 ---
 
-## 19. Legal
+## 21. Legal
 
 This format is designed for Magic: The Gathering gameplay recording and analysis. Magic: The Gathering is trademark of Wizards of the Coast LLC.
 
