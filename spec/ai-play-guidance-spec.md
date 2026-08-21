@@ -1,0 +1,807 @@
+# AI Play Guidance Specification
+
+## Companion Specification v1.0.0
+
+**Status:** Draft / Proposed  
+**Published:** August 2026  
+**Purpose:** Standardized JSON format and execution model for defining deck-specific AI play policies, tactical role connections, target ranking heuristics, and sequencing preferences for Magic: The Gathering engines and frontend interfaces.
+
+**Related Specifications:**
+- [MTG Replay & Learning Notation](./MTG-REPLAY-NOTATION.md)
+- [Commander Decklist Notation](./commander-decklist-spec.md)
+- [MTG State Evaluation Framework](./mtg-state-evaluation-spec.md)
+- [Forge Integration Guide](./forge-integration-guide.md)
+
+---
+
+## 1. Introduction & Objectives
+
+Standard game engines and AI simulators (such as Forge) evaluate plays using generic, card-agnostic heuristics (e.g., maximum mana expenditure, raw creature power/toughness, generic threat ratings). While effective for baseline gameplay, these heuristics fail to capture:
+
+1. **Deck Strategic Intent:** Synergies, combo dependencies, and engine formation requirements.
+2. **Tactical Target Valuation:** Context-sensitive threat assessment (e.g., distinguishing between a vanilla 6/6 and an opponent's core synergy engine).
+3. **Sequencing & Timing Nuance:** Optimal play order within a turn, baiting countermagic, holding protection, and pre- vs. post-combat timing windows.
+4. **Adaptive Strategy Profiles:** Shifting priorities across early setup, mid-game development, and late-game reach.
+
+The **AI Play Guidance Specification** defines a declarative schema (`ai_guidance`) embedded in Commander decklists or standalone policy files, bridging the **MaMo Frontend Playbook UI**, the **Vector State Evaluation Engine**, and execution platforms such as **Forge AI**.
+
+---
+
+## 2. Architecture & Data Flow
+
+```mermaid
+flowchart TD
+    subgraph Frontend ["MaMo Frontend UI (Authoring & Coaching)"]
+        UI_Role["Tactical Role Mapper"]
+        UI_Target["Target Ranking Matrix Editor"]
+        UI_Seq["Sequencing & Preference Ladder"]
+        UI_Profile["10-Dimension Strategy Profiles"]
+        UI_Coach["AI Decision Coach & Replay Overlay"]
+    end
+
+    subgraph DataSpec ["Data Layer (ai_guidance JSON)"]
+        GuidanceSpec["ai_guidance Schema\n- role_bindings\n- target_rankings\n- play_preferences\n- evaluation_profile\n- scenario_overrides"]
+    end
+
+    subgraph EvalFramework ["State Evaluation Framework (Spec)"]
+        Dim10["10 Evaluation Dimensions (Resources, Tempo, Risk...)"]
+        FormGraph["Formation Graphs (Core, Enabler, Payoff, Multiplier)"]
+        DeltaV["Pre/Post Decision ΔV Calculation"]
+    end
+
+    subgraph EngineRuntime ["AI Simulation Engine (e.g., Forge AI)"]
+        Controller["AiController & Priority Loop"]
+        AbilityAi["SpellAbilityAi Handlers (DestroyAi, DrawAi...)"]
+        TargetEngine["Targeting & Scoring Hooks"]
+        DecisionLog["AiDecisionLogger → Replay L2 Events"]
+    end
+
+    Frontend -->|Author & Export| GuidanceSpec
+    GuidanceSpec -->|Dynamic Weighting| Dim10
+    GuidanceSpec -->|Formation Rules| FormGraph
+    GuidanceSpec -->|Override Target Heuristics| TargetEngine
+    GuidanceSpec -->|Inject Action Preferences| Controller
+    Dim10 -->|State Evaluation Vector| Controller
+    FormGraph -->|Formation Disruption Scores| TargetEngine
+    Controller -->|Record Candidates & Rationale| DecisionLog
+    DecisionLog -->|L2 Explanations| UI_Coach
+```
+
+---
+
+## 3. Schema Overview: `ai_guidance`
+
+The `ai_guidance` object is declared within `deck_rules` in a decklist file (or stored as a standalone `.policy.json` file):
+
+```json
+{
+  "format": "mtg-ai-guidance",
+  "version": "1.0.0",
+  "meta": {
+    "deck_id": "c1f7b8a2-9b24-4d8e-9d21-4f1e0d8a7c3b",
+    "deck_name": "Ghave Spores & Combos",
+    "author": "MaMo AI Architect",
+    "updated": "2026-08-20"
+  },
+  "role_bindings": { /* Tactical Card Roles & Deployment Constraints */ },
+  "target_rankings": [ /* Dynamic Target Prioritization & Vetoes */ ],
+  "play_preferences": [ /* Sequencing Ladders, Timing Windows & Baiting */ ],
+  "evaluation_profile": { /* 10-Dimension Weights across Turn Stages */ },
+  "scenario_overrides": [ /* Situational Fallbacks & Board State Triggers */ ]
+}
+```
+
+---
+
+## 4. Pillar 1: Tactical Role Bindings (`role_bindings`)
+
+Cards within a deck are assigned explicit tactical roles that determine how and when the AI should cast, activate, and protect them.
+
+### 4.1 Role Definitions
+
+| Role Identifier | Description | Strategic Default Behavior |
+| :--- | :--- | :--- |
+| `engine_core` | Central value or combo hub of the deck (e.g., *Ghave*, *Korvold*, *Ashnod's Altar*). | Do not deploy without enablers or protection; protect with highest priority. |
+| `enabler` | Feeds materials (counters, tokens, sacrifice fodder, mana) into the engine. | Deploy early to prepare board state for `engine_core`. |
+| `multiplier` | Amplifies engine outputs (e.g., *Doubling Season*, *Parallel Lives*, *Panharmonicon*). | Hold until at least one `engine_core` or active `enabler` is online. |
+| `payoff` | Converts accumulated resources into board dominance, card draw, or win conditions. | Cast when formation output or resource pool satisfies threshold. |
+| `protection` | Shields key permanents from removal or wraths (e.g., *Heroic Intervention*, *Teferi's Protection*). | Hold open mana; cast reactively in response to opponent interaction. |
+| `spot_removal` | Single-target removal or bounce spells. | Consume according to `target_rankings`. |
+| `board_wipe` | Symmetrical or asymmetric mass removal. | Cast only when opponent board presence outscales self board by defined ratio. |
+| `battery` | Mana ramp, rocks, and dorks (e.g., *Sol Ring*, *Birds of Paradise*). | Curve accelerator; prioritize in Turns 1–3. |
+
+### 4.2 Ability-Level Role Granularity
+
+For multi-functional permanents (e.g., *Ghave, Guru of Spores*, *Yawgmoth, Thran Physician*, Planeswalkers), roles are declared both at the card level (primary classification) and per-ability index (1-based ability index from oracle text).
+
+### 4.3 Schema: Role Bindings & Deployment Constraints (Structured AST)
+
+```json
+{
+  "role_bindings": {
+    "cards": {
+      "Ghave, Guru of Spores": {
+        "primary_role": "engine_core",
+        "sub_roles": ["payoff", "sac_outlet"],
+        "abilities": {
+          "1": {
+            "role": "enabler",
+            "effect_type": "token_producer",
+            "timing": "end_of_opponent_turn",
+            "cost_profile": { "mana": "{1}", "counters_removed": 1 }
+          },
+          "2": {
+            "role": "payoff",
+            "effect_type": "sac_outlet_and_buff",
+            "timing": "combat_declare_blockers",
+            "cost_profile": { "mana": "{1}", "creatures_sacrificed": 1 }
+          }
+        }
+      },
+      "Ashnod's Altar": {
+        "primary_role": "engine_core",
+        "sub_roles": ["battery", "combo_piece"]
+      },
+      "Doubling Season": {
+        "primary_role": "multiplier",
+        "sub_roles": ["combo_piece"]
+      },
+      "Young Wolf": {
+        "primary_role": "enabler",
+        "sub_roles": ["fodder"]
+      },
+      "Heroic Intervention": {
+        "primary_role": "protection",
+        "sub_roles": ["reactive"]
+      },
+      "Swords to Plowshares": {
+        "primary_role": "spot_removal",
+        "sub_roles": ["exile"]
+      }
+    },
+    "deployment_constraints": [
+      {
+        "id": "multiplier_requires_board",
+        "applies_to_role": "multiplier",
+        "condition": {
+          "any_of": [
+            { "field": "battlefield.roles", "op": "contains_any", "value": ["engine_core", "enabler"] },
+            { "field": "battlefield.creatures.count", "op": ">=", "value": 2 }
+          ]
+        },
+        "on_fail": "hold",
+        "reason": "Avoid deploying Doubling Season onto an empty, non-functioning board."
+      },
+      {
+        "id": "engine_core_hold_against_countermagic",
+        "applies_to_role": "engine_core",
+        "condition": {
+          "none_of": [
+            {
+              "all_of": [
+                { "field": "opponents.max_untapped_blue_mana", "op": ">=", "value": 2 },
+                { "field": "hand.roles", "op": "lacks", "value": "protection" }
+              ]
+            }
+          ]
+        },
+        "on_fail": "hold",
+        "reason": "Hold core engine if opponent represents countermagic and no protection is in hand."
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 5. Pillar 2: Target Ranking Matrix (`target_rankings`)
+
+Defines context-aware scoring for single-target removal, counters, bouncers, and buffs using a **Structured Predicate AST** and pre-compiled threat tiers.
+
+### 5.1 Dynamic Target Scoring Formula
+
+$$\text{Final Target Score} = \text{Base Threat} + \sum (\text{Matched Condition Weight}) + \text{Threat Tier Bonus} + \text{Tempo Bonus}$$
+
+- **Threat Tier Bonus:** Awarded via the Public Canonical Threat Catalog ($+100$ for Tier 1 `combo_piece`, $+70$ for Tier 2 `engine_hub`, $+45$ for Tier 3 `stax_lock`).
+- **Tempo Bonus:** $+10 \times (\text{Target CMC} - \text{Spell CMC})$ for mana-positive exchanges.
+- **Hard Vetoes:** Instant disqualification if a veto predicate evaluates to `true`.
+
+### 5.2 Schema: Target Rankings & Hard Vetoes (Structured AST)
+
+```json
+{
+  "target_rankings": [
+    {
+      "id": "single_target_creature_removal",
+      "applies_to": { "primary_mechanic": "removal", "target_zone": "battlefield", "target_type": "creature" },
+      "evaluation_ladder": [
+        {
+          "condition": { "field": "target.canonical_threat_tier", "op": "==", "value": "tier_1_combo" },
+          "score": 100,
+          "description": "Immediate game-ending combo piece (e.g. Thassa's Oracle, Kiki-Jiki, Food Chain)"
+        },
+        {
+          "condition": { "field": "target.role", "op": "==", "value": "engine_core" },
+          "score": 70,
+          "description": "Opponent engine hubs that generate compounding value"
+        },
+        {
+          "condition": {
+            "all_of": [
+              { "field": "target.is_commander", "op": "==", "value": true },
+              { "field": "target.power", "op": ">=", "value": 6 }
+            ]
+          },
+          "score": 50,
+          "description": "High commander combat damage threat"
+        },
+        {
+          "condition": { "field": "target.has_static_ability_type", "op": "contains", "value": "stax_lock" },
+          "score": 45,
+          "description": "Permanents shutting down our own gameplan (e.g., Collector Ouphe, Rest in Peace)"
+        },
+        {
+          "condition": {
+            "all_of": [
+              { "field": "target.keywords", "op": "contains_any", "value": ["Flying", "Shadow", "Unblockable"] },
+              { "field": "target.power", "op": ">=", "value": 4 }
+            ]
+          },
+          "score": 30,
+          "description": "High evasive damage clock"
+        }
+      ],
+      "vetoes": [
+        {
+          "condition": {
+            "all_of": [
+              { "field": "target.keywords", "op": "contains", "value": "Indestructible" },
+              { "field": "spell.effect_types", "op": "excludes_all", "value": ["exile", "bounce", "minus_x_minus_x"] }
+            ]
+          },
+          "veto": true,
+          "reason": "Do not expend destroy/damage removal on indestructible permanents."
+        },
+        {
+          "condition": {
+            "all_of": [
+              { "field": "target.death_trigger_severity", "op": ">=", "value": 3 },
+              { "field": "spell.effect_types", "op": "contains", "value": "destroy" }
+            ]
+          },
+          "veto": true,
+          "reason": "Avoid triggering catastrophic opponent death triggers (e.g., Protean Hulk, Wurmcoil Engine)."
+        }
+      ]
+    },
+    {
+      "id": "counterspell_priority",
+      "applies_to": { "primary_mechanic": "counterspell" },
+      "evaluation_ladder": [
+        {
+          "condition": { "field": "target_spell.canonical_threat_tier", "op": "==", "value": "tier_1_combo" },
+          "score": 100
+        },
+        {
+          "condition": {
+            "all_of": [
+              { "field": "target_spell.effect_types", "op": "contains", "value": "mass_removal" },
+              { "field": "state.self_board_presence_ahead", "op": "==", "value": true }
+            ]
+          },
+          "score": 80
+        },
+        {
+          "condition": { "field": "target_spell.targets_our_role", "op": "==", "value": "engine_core" },
+          "score": 75
+        }
+      ],
+      "vetoes": [
+        {
+          "condition": {
+            "all_of": [
+              { "field": "target_spell.types", "op": "contains", "value": "Creature" },
+              { "field": "target_spell.cmc", "op": "<=", "value": 2 },
+              { "field": "target_spell.canonical_threat_tier", "op": "==", "value": "none" }
+            ]
+          },
+          "veto": true,
+          "reason": "Do not expend premium counterspells on low-impact early creatures."
+        }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+## 6. Pillar 3: Play Preferences & State-Machine Tactical Ladders (`play_preferences`)
+
+Resolves priority conflicts through phase-aware timing defaults, explicit preference ladders, and state-machine tactical sequences with abort guards.
+
+### 6.1 Phase Timing Defaults
+
+1. **Pre-Combat Main (`MAIN1`):** Haste enablers, pump spells, land drops needed for combat, and blocker removal.
+2. **Combat Step:** Combat tricks (declare blockers step).
+3. **Post-Combat Main (`MAIN2`):** Symmetrical card draw, engine hubs, vanilla creatures, sorceries, and non-combat permanents (maximizes information asymmetry and bluff potential).
+
+### 6.2 Schema: Preference Ladders & State-Machine Tactics
+
+```json
+{
+  "play_preferences": {
+    "timing_defaults": {
+      "haste_enablers": "pre_combat_main",
+      "combat_tricks": "combat_declare_blockers",
+      "engine_development": "post_combat_main",
+      "sorcery_card_draw": "post_combat_main",
+      "land_drops": "pre_combat_main"
+    },
+    "preference_ladders": [
+      {
+        "turn_range": [1, 2],
+        "available_mana": 2,
+        "role_priority": ["battery", "enabler", "passive_selection"],
+        "explicit_ladder": [
+          { "card": "Sol Ring", "weight": 100 },
+          { "card": "Arcane Signet", "weight": 80 },
+          { "card": "Fellwar Stone", "weight": 70 },
+          { "card": "Sylvan Library", "weight": 50 },
+          { "card": "Elvish Visionary", "weight": 30 }
+        ],
+        "explanation": "Prioritize permanent mana acceleration before passive card filtering or small creatures."
+      }
+    ],
+    "tactical_sequences": [
+      {
+        "id": "bait_countermagic_sequence",
+        "trigger": {
+          "all_of": [
+            { "field": "opponents.max_untapped_blue_mana", "op": ">=", "value": 2 },
+            { "field": "hand.has_roles_all", "op": "contains_all", "value": ["engine_core", "enabler"] },
+            { "field": "resources.available_mana", "op": ">=", "value": "{sum_cmc}" }
+          ]
+        },
+        "stage_1": {
+          "action": "cast",
+          "target_role": "enabler",
+          "intent": "bait"
+        },
+        "stage_2": {
+          "action": "cast",
+          "target_role": "engine_core",
+          "intent": "commit_bomb",
+          "abort_if": {
+            "any_of": [
+              { "field": "state.is_silenced", "op": "==", "value": true },
+              { "field": "resources.available_mana", "op": "<", "value": "{engine_core.cmc}" },
+              { "field": "opponents.max_untapped_blue_mana", "op": ">=", "value": 4 }
+            ]
+          },
+          "fallback": "pass_priority"
+        },
+        "reason": "Offer enabler as bait. If countered or mana denied, abort stage 2 rather than walking engine into remaining countermagic."
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 7. Pillar 4: Vector Strategy Profiles (`evaluation_profile`)
+
+Hooks directly into the 10 Evaluation Dimensions from [mtg-state-evaluation-spec.md](./mtg-state-evaluation-spec.md). Instead of static weights, the deck specifies **Dynamic Weight Vectors ($\mathbf{w}_{\text{deck}}$)** that evolve across game stages.
+
+### 7.1 Dimension Profiles
+
+$$\text{Action Score}(a) = \mathbf{w}_{\text{deck}}(\text{Stage}) \cdot \Delta \mathbf{V}_{\text{eval}}(a) + \text{PolicyBonus}(a)$$
+
+| Stage | Turn Range | Primary Focus Dimensions | Description |
+| :--- | :--- | :--- | :--- |
+| **Early Game** | Turns 1–3 | `Resources` ($w_1$), `Flexibility` ($w_7$) | Focus on mana fixing, curve development, and setting up hands. |
+| **Mid Game** | Turns 4–7 | `Synergy` ($w_9$), `Card Advantage` ($w_4$), `Board Presence` ($w_2$) | Establish engine formations, build board advantage, manage threat exposure. |
+| **Late Game** | Turns 8+ | `Explosiveness` ($w_{10}$), `Reach` ($w_9$), `Inevitability` ($w_6$) | Execute winning combos, alpha strikes, or lock down inevitability. |
+
+### 7.2 Schema: Strategy Profiles
+
+```json
+{
+  "evaluation_profile": {
+    "stages": {
+      "early": {
+        "turns": [1, 3],
+        "weights": {
+          "resources": 0.40,
+          "flexibility": 0.25,
+          "tempo": 0.20,
+          "card_advantage": 0.15,
+          "risk_exposure": -0.30
+        }
+      },
+      "mid": {
+        "turns": [4, 7],
+        "weights": {
+          "synergy_gameplan": 0.35,
+          "card_advantage": 0.25,
+          "board_presence": 0.20,
+          "tempo": 0.10,
+          "risk_exposure": -0.40
+        }
+      },
+      "late": {
+        "turns": [8, 99],
+        "weights": {
+          "explosiveness": 0.40,
+          "life_pressure": 0.25,
+          "inevitability": 0.20,
+          "synergy_gameplan": 0.15,
+          "risk_exposure": -0.20
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
+## 8. Pillar 5: Scenario & Dynamic Overrides (`scenario_overrides`)
+
+Defines reactive shifts triggered by specific board state extremes using the Structured Predicate AST.
+
+```json
+{
+  "scenario_overrides": [
+    {
+      "id": "defensive_pivot_critical_life",
+      "condition": {
+        "all_of": [
+          { "field": "player.life", "op": "<=", "value": 10 },
+          { "field": "opponents.represented_combat_damage", "op": ">=", "value": "{player.life}" }
+        ]
+      },
+      "adjustments": {
+        "evaluation_weights_delta": {
+          "life_pressure": 0.50,
+          "board_presence": 0.30,
+          "resources": -0.30
+        },
+        "behavior": {
+          "force_hold_blockers": true,
+          "prioritize_removal_on_attackers": true
+        }
+      }
+    },
+    {
+      "id": "wrath_recovery_mode",
+      "condition": {
+        "all_of": [
+          { "field": "state.recent_board_wipe_occurred", "op": "==", "value": true },
+          { "field": "battlefield.self_creatures_count", "op": "==", "value": 0 }
+        ]
+      },
+      "adjustments": {
+        "behavior": {
+          "prioritize_card_draw_before_creatures": true,
+          "deploy_enablers_before_commander": true
+        }
+      }
+    }
+  ]
+}
+```
+
+---
+
+## 9. Canonical Threat Catalog & Fair Information Horizon
+
+To prevent the AI from illegally reading hidden opponent decklists while maintaining high-level tactical threat evaluation, the guidance system specifies a **Public Canonical Threat Catalog**.
+
+### 9.1 Threat Tiers
+
+```mermaid
+graph TD
+    T1["Tier 1: Wincon / Combo Pieces\n(Thassa's Oracle, Kiki-Jiki, Food Chain, Underworld Breach)\nScore: +100 | Immediate Kill Priority"]
+    T2["Tier 2: Core Value & Mana Engines\n(Korvold, Rhystic Study, Smothering Tithe, Ashnod's Altar)\nScore: +70 | High Disruption Priority"]
+    T3["Tier 3: Asymmetric Stax & Lock Pieces\n(Collector Ouphe, Rest in Peace, Drannith Magistrate)\nScore: +45 | Tactical Removal Priority"]
+    T4["Tier 4: Evasive / Commander Damage Clocks\n(Power >= 6 or Evasive Attackers)\nScore: +30 | Combat Control Priority"]
+```
+
+### 9.2 Catalog Schema & Modes
+
+```json
+{
+  "canonical_threat_catalog": {
+    "mode": "fair_public_catalog",
+    "tier_1_combo": [
+      "Thassa's Oracle", "Demonic Consultation", "Tainted Pact", "Kiki-Jiki, Mirror Breaker",
+      "Splinter Twin", "Food Chain", "Underworld Breach", "Lion's Eye Diamond", "Isochron Scepter"
+    ],
+    "tier_2_engine": [
+      "Rhystic Study", "Mystic Remora", "Smothering Tithe", "Ashnod's Altar", "Phyrexian Altar",
+      "Korvold, Fae-Cursed King", "Tivit, Seller of Secrets", "Seedborn Muse", "Necropotence"
+    ],
+    "tier_3_stax": [
+      "Collector Ouphe", "Null Rod", "Rest in Peace", "Dauthi Voidwalker",
+      "Drannith Magistrate", "Opposition Agent", "Aven Mindcensor"
+    ]
+  }
+}
+```
+
+- **Fair Mode (`fair_public_catalog`):** The AI scores opposing threats strictly against this public canonical catalog and observable public zones (Battlefield, Command Zone, Graveyard, face-up Exile).
+- **Scenario Mode (`scenario_omniscient`):** Used strictly for deterministic scenario benchmarks where deck synergies and planned lines are declared upfront in scenario definitions.
+
+---
+
+## 10. Frontend Schema & UI Component Architecture
+
+The guidance specification is directly mapped to intuitive, visual authoring components in the **MaMo Frontend Playbook Builder**.
+
+### 10.1 UI Component Mapping
+
+```
++---------------------------------------------------------------------------------------+
+|  MaMo Playbook — AI Guidance Builder: Ghave Spores & Combos                           |
++---------------------------------------------------------------------------------------+
+|  [ 1. Role Canvas ]   [ 2. Ability Mapper ]   [ 3. Target Matrix ]   [ 4. Strategy ]  |
++---------------------------------------------------------------------------------------+
+|                                                                                       |
+|  ABILITY-LEVEL ROLE MAPPER: Ghave, Guru of Spores                                     |
+|  Primary Role: [ Engine Core v ]                                                      |
+|  +---------------------------------------------------------------------------------+  |
+|  | Ability # | Oracle Text Snippet                  | Assigned Role  | Timing       |  |
+|  |-----------+--------------------------------------+----------------+--------------|  |
+|  | Ability 1 | {1}, Remove a +1/+1 counter: 1/1 Saproling | [ Enabler v ]  | [ End Step ] |  |
+|  | Ability 2 | {1}, Sacrifice a creature: +1/+1 counter | [ Payoff v ]   | [ Combat ]   |  |
+|  +---------------------------------------------------------------------------------+  |
+|                                                                                       |
+|  VISUAL PREDICATE BUILDER (Target Veto for Swords to Plowshares)                      |
+|  +---------------------------------------------------------------------------------+  |
+|  | [ IF ALL OF: ]                                                                  |  |
+|  |   - [ Target Keywords ] [ Contains ] [ Indestructible ]                         |  |
+|  |   - [ Spell Effect ]    [ Excludes All ] [ Exile, Bounce, -X/-X ]               |  |
+|  | [ THEN: ] [ VETO TARGET (Score = 0) ]                                           |  |
+|  +---------------------------------------------------------------------------------+  |
+|                                                                                       |
+|  REPLAY COACHING OVERLAY (Live Decision Breakdown)                                    |
+|  Turn 4 Priority: AI chose Swords to Plowshares on Korvold, Fae-Cursed King           |
+|  - Threat Tier: Tier 2 Engine Hub (+70)                                               |
+|  - Commander Multiplier: Active (+50)                                                 |
+|  - Tempo Delta: 5 CMC vs 1 CMC (+40)                                                  |
+|  - Total Score: 160 (Selected over 8/8 Vanilla Beater with score 30)                  |
++---------------------------------------------------------------------------------------+
+```
+
+### 10.2 Frontend Predicate AST Schema Definitions
+
+```typescript
+export type PredicateOperator = 
+  | '==' | '!=' | '>' | '>=' | '<' | '<='
+  | 'contains' | 'contains_any' | 'contains_all'
+  | 'excludes_all' | 'lacks';
+
+export interface AtomicPredicate {
+  field: string;
+  op: PredicateOperator;
+  value: string | number | boolean | string[];
+}
+
+export interface CompoundPredicate {
+  all_of?: Array<AtomicPredicate | CompoundPredicate>;
+  any_of?: Array<AtomicPredicate | CompoundPredicate>;
+  none_of?: Array<AtomicPredicate | CompoundPredicate>;
+}
+
+export type PredicateAST = AtomicPredicate | CompoundPredicate;
+```
+
+---
+
+## 11. Forge Integration & Existing AI Capabilities
+
+The AI Guidance Specification is designed to integrate seamlessly into **Forge's AI Architecture** (as documented in `AI_DECISION_MAKING_CONCEPT.md`). Forge already provides a comprehensive rules execution engine and baseline heuristic decision system; the `ai_guidance` policy acts as an **overlay and scoring modifier** on top of these existing facilities.
+
+### 11.1 What Already Exists in Forge AI
+
+| Forge Subsystem | Existing Implementation & Responsibility | Guidance Integration Point |
+| :--- | :--- | :--- |
+| **`AiController`** | Central coordinator managing the priority loop, phase flow, and candidate action selection (`chooseSpellAbilityToPlay`). | **Action Filter & Ranking:** Applies `play_preferences`, preference ladders, and phase timing defaults (`pre_combat_main` vs `post_combat_main`). |
+| **`SpellAbilityAi` Handlers** | ~100+ specialized ability handlers (`DestroyAi`, `DamageDealAi`, `DrawAi`, `ChangeZoneAi`, `CountersPutAi`, etc.) implementing `canPlayAI()` and `chooseTargetsAI()`. | **Target Ranking Override:** Replaces generic target heuristics with conditions and vetoes from `target_rankings`. |
+| **`ComputerUtilCard`** | Card evaluation utilities calculating baseline threat scores, creature values, and best/worst permanent sorting. | **Formation Scoring:** Modifies baseline card value with Formation Graph disruption values ($\Delta\text{Formation}$) and role weights (`engine_core`, `multiplier`). |
+| **`ComputerUtilCombat`** | Simulates combat math, trade ratios, evasion keywords, and alpha-strike lethal checks in `AiAttackController` & `AiBlockController`. | **Combat Directives:** Tuned via `AggressionLevel` and `TradeThreshold` adjustments derived from `evaluation_profile`. |
+| **`ComputerUtilMana`** | Mana source classification (basics $\to$ duals $\to$ rocks $\to$ dorks $\to$ dynamic yield $\to$ sacrifice/treasures) and auto-payment sequencing. | **Resource Constraints:** Informs role deployment rules (e.g., reserving mana for `protection` roles). |
+| **Forced Play Sequences** | Scenario script engine that plays predetermined card sequences when resources allow. | **Tactical Sequence Engine:** Powers high-level scripted baiting sequences (`bait_countermagic`) and curve ladders. |
+| **AI Profiles (`.ai`)** | Property configurations (`AggressionLevel`, `TradeThreshold`, `LifeDangerThreshold`, `MulliganModel`, `SimulationDepth`). | **Dynamic Profile Adapter:** Maps early/mid/late game weights from `evaluation_profile` directly to Forge profile variables at runtime. |
+| **`AiDecisionLogger`** | Exports candidate options, evaluated alternatives, and chosen rationale to MTG Replay Notation JSON (`events` and `views_l2`). | **Coaching Pipeline:** Emits the exact guidance rule IDs and $\Delta\mathbf{V}$ evaluation breakdown into replay files for frontend review. |
+
+### 11.2 Forge Execution Flow with Guidance Overlay
+
+```mermaid
+sequenceDiagram
+    participant Engine as Forge PhaseHandler
+    participant PCAi as PlayerControllerAi
+    participant AiCtrl as AiController
+    participant Guidance as ai_guidance Policy
+    participant AbilityAi as SpellAbilityAi
+    participant TargetHook as TargetRankingEngine
+
+    Engine->>PCAi: chooseSpellAbilityToPlay()
+    PCAi->>AiCtrl: getSpellAbilitiesToPlay()
+    
+    AiCtrl->>Guidance: Check Active Phase & Timing Defaults
+    AiCtrl->>Guidance: Check Role Deployment Constraints (e.g., Multiplier without Core?)
+    
+    loop For each legal candidate SpellAbility
+        AiCtrl->>AbilityAi: canPlayAI(AiController, sa)
+        AbilityAi->>TargetHook: evaluateTargets(sa, legalTargets)
+        TargetHook->>Guidance: Apply target_rankings (Priority Ladder + Vetoes)
+        TargetHook-->>AbilityAi: Ranked Target List & Disruption Score
+        AbilityAi-->>AiCtrl: boolean (true/false) + chosen targets
+    end
+
+    AiCtrl->>Guidance: Apply play_preferences & preference_ladders
+    AiCtrl->>AiCtrl: Calculate Final Score = w_deck · ΔV + TargetScore + PreferenceBonus
+    AiCtrl-->>PCAi: Return highest-scoring SpellAbility
+    PCAi-->>Engine: Execute selected action
+```
+
+### 11.3 Connector & Delivery Pipeline
+
+As detailed in the [Forge Integration Guide](./forge-integration-guide.md):
+1. The **MaMo Frontend** bundles the decklist `.dck` and the accompanying `ai_guidance` JSON object.
+2. The **`mamo-Connector`** places the guidance configuration in Forge's deck/profile directory or launches Forge with the guidance payload.
+3. Forge's `AiController` loads the `ai_guidance` configuration, establishing the dynamic scoring overrides and rule hooks for the match.
+
+---
+
+## 12. Summary & Integration Matrix
+
+| Specification | Role in Guidance System |
+| :--- | :--- |
+| **`ai-play-guidance-spec.md`** (This Document) | Defines declarative schema (`ai_guidance`), role bindings, target ranking rules, sequencing ladders, strategy profiles, and Forge runtime hooks. |
+| **[`commander-decklist-spec.md`](./commander-decklist-spec.md)** | Hosts the `ai_guidance` block within `deck_rules.ai_guidance`. |
+| **[`mtg-state-evaluation-spec.md`](./mtg-state-evaluation-spec.md)** | Provides the underlying 10-dimension evaluation engine and formation disruption graphs. |
+| **[`MTG-REPLAY-NOTATION.md`](./MTG-REPLAY-NOTATION.md)** | Captures AI decision candidates, scoring weights, and chosen actions in `views_l2` and `events`. |
+| **[`forge-integration-guide.md`](./forge-integration-guide.md)** | Defines connector and export translation from `ai_guidance` into Forge AI runtime parameters. |
+
+---
+
+## 13. Implementation Roadmap & Conceptual Adjustments
+
+While the `ai_guidance` specification establishes an ideal declarative bridge between strategic intent and game engines, real-world execution inside simulation engines like **Forge** requires bridging theoretical models with game-loop performance, rules engine constraints, and modular code architecture.
+
+### 12.1 Pragmatic Implementation Roadmap (What to Implement First)
+
+The following 5-stage roadmap prioritizes features that deliver immediate gameplay improvements with minimal architectural disruption:
+
+```
+[ Stage 1: Role Bindings & Deployment Guards ]  ──▶  High Value / Low Complexity (Immediate win)
+[ Stage 2: Target Ranking Ladders & Vetoes  ]  ──▶  Prevents critical AI misplays & wasted removal
+[ Stage 3: Phase-Aware Sequencing Ladders   ]  ──▶  Solves pre/post combat & curve optimization
+[ Stage 4: Dynamic Stage Profile Tuning     ]  ──▶  Modulates aggression & threat tolerance over time
+[ Stage 5: Coaching & L2 Decision Logging   ]  ──▶  Exposes decision reasoning in Replay Viewer
+```
+
+#### Stage 1: Declarative Role Bindings & Deployment Guards
+* **Implementation Target:** `AiPlayDecision` / `AiController.getSpellAbilitiesToPlay()`.
+* **Mechanism:** Before scoring candidate spells, evaluate simple role requirements against current battlefield presence:
+  * *Multiplier Guard:* Do not deploy a `multiplier` (e.g. *Doubling Season*) onto an empty board lacking an `engine_core` or `enabler`.
+  * *Protection Reserve:* Prevent tapping out during main phase if holding open mana for designated `protection` cards (e.g. *Heroic Intervention*) against known opponent open interaction.
+* **Complexity / Benefit:** **Low Effort, High Strategic Value.** Prevents the single most common AI blunder in synergy decks.
+
+#### Stage 2: Target Ranking Matrix & Hard Vetoes
+* **Implementation Target:** `SpellAbilityAi.chooseTargetsAI()` and `ComputerUtilCard.evaluateCreature()`.
+* **Mechanism:** 
+  * Inject **Hard Vetoes** directly into target candidate filters (e.g., skip targets with `Indestructible` for non-exile/non-bounce removal; skip low-CMC non-combo threats for premium counterspells).
+  * Apply **Score Modifiers** (+100 for combo pieces, +70 for opponent engine cores) to the baseline threat evaluation returned by `ComputerUtilCard`.
+* **Complexity / Benefit:** **Medium Effort, Transformative Quality.** Transforms generic "target highest power/CMC creature" into surgical engine disruption.
+
+#### Stage 3: Phase-Aware Sequencing Ladders
+* **Implementation Target:** `AiController.chooseSpellAbilityToPlay()` priority sorting.
+* **Mechanism:** Forge already separates `MAIN1` (pre-combat) from `MAIN2` (post-combat) in `AiPlayDecision`. Mapping `timing_defaults` (e.g. haste enablers $\to$ `MAIN1`, pure card draw / non-combat permanents $\to$ `MAIN2`) enforces disciplined information hiding and bluffing.
+* **Complexity / Benefit:** **Low Effort, High Realism.** Eliminates unforced informational leaks before combat.
+
+#### Stage 4: Dynamic Stage-Based Profile Modulation
+* **Implementation Target:** `AiProps` / `AiProfile` runtime mapping.
+* **Mechanism:** Dynamically adjust Forge AI profile parameters (`AggressionLevel`, `TradeThreshold`, `LifeDangerThreshold`) based on turn brackets (Turns 1–3: Ramp/Setup, Turns 4–7: Synergy/Advantage, Turns 8+: Lethal Race).
+* **Complexity / Benefit:** **Low Effort, Strong Pacing.** Gives decks natural pacing without modifying core rules code.
+
+#### Stage 5: Coaching & Decision Transparency
+* **Implementation Target:** `AiDecisionLogger` and `ReplayNotationExporter`.
+* **Mechanism:** When `ai_guidance` modifies a decision (applying a veto, boosting a target score, or enforcing a deployment guard), record the matched rule ID and score delta directly into the L2 unit in MTG Replay Notation JSON.
+* **Complexity / Benefit:** **Medium Effort, Excellent UX.** Allows the frontend Replay Coach to explain *why* the AI chose or avoided a line.
+
+---
+
+### 12.2 Critical Conceptual Adjustments & Reality Checks
+
+To ensure the specification is robust, fast, and maintainable across Java rules engines, web frontends, and Python evaluation tools, the following conceptual adjustments must be incorporated:
+
+```mermaid
+flowchart TD
+    subgraph ConceptualAdjustments ["Required Conceptual Adjustments"]
+        A1["1. Structured Predicate AST\n(Replace un-evaluable ad-hoc string conditions)"]
+        A2["2. Ability-Level Role Granularity\n(Support multi-ability permanents like Ghave)"]
+        A3["3. Pre-Compiled Combo Tiers\n(Avoid real-time dynamic graph isomorphism lag)"]
+        A4["4. Realistic Information Horizon\n(Public staple database vs illegal hidden deck checks)"]
+        A5["5. State-Based Tactical Sequences\n(Abortable priority states instead of rigid macros)"]
+    end
+```
+
+#### 1. Replace Free-Form Condition Strings with a Structured Predicate AST
+* **The Issue:** The draft specification uses arbitrary string expressions such as:
+  ```json
+  "condition": "opponent_open_mana >= 2 && opponent_colors_include('U') && !has_in_hand('protection')"
+  ```
+  In a compiled Java rules engine like Forge, evaluating ad-hoc string expressions at runtime requires an embedded scripting engine (e.g. Nashorn/MVEL) which introduces substantial memory overhead, garbage collection pauses, and security risks during simulation runs.
+* **Required Adjustment:** Specify a **declarative, schema-validated JSON Predicate AST**:
+  ```json
+  "condition": {
+    "all_of": [
+      { "field": "opponent_open_mana", "op": ">=", "value": 2 },
+      { "field": "opponent_mana_colors", "op": "contains", "value": "U" },
+      { "field": "hand_contains_role", "op": "none", "value": "protection" }
+    ]
+  }
+  ```
+  *Why this matters:* JSON schema validators, Java engine parsers, and web frontends can natively validate, compile, and execute structured predicates with zero runtime reflection or script evaluation overhead.
+
+#### 2. Ability-Level Granularity for Multi-Ability Permanents
+* **The Issue:** Assigning a single `primary_role` at the card level works well for single-purpose spells (e.g., *Swords to Plowshares* as `spot_removal`), but breaks down for multi-functional permanents (e.g., *Ghave, Guru of Spores*, *Yawgmoth, Thran Physician*, or Planeswalkers) which possess distinct abilities serving opposite roles (e.g., token generation vs. creature removal vs. card draw).
+* **Required Adjustment:** Extend `role_bindings` to support optional per-ability role assignments indexed by ability sequence or ability ID:
+  ```json
+  "Ghave, Guru of Spores": {
+    "primary_role": "engine_core",
+    "abilities": {
+      "1": { "role": "token_producer", "timing": "end_of_opponent_turn" },
+      "2": { "role": "sac_outlet_and_buff", "timing": "combat_declare_blockers" }
+    }
+  }
+  ```
+
+#### 3. Formation Graphs: Pre-Compiled Synergy Tiers vs. Dynamic Graph Computation
+* **The Issue:** Calculating full dynamic multi-node Formation Graphs ($\Delta\text{Formation Disruption}$) during every single candidate target evaluation in a 4-player Commander game will cause severe performance degradation during AI turns.
+* **Required Adjustment:** 
+  * Use **Pre-Compiled Synergy Tiers** (`combo_piece`, `engine_hub`, `enabler_staple`, `utility`) declared in the decklist metadata for instantaneous $O(1)$ lookup during target scoring.
+  * Reserve full graph topology calculation for post-game Level 2 replay analysis and offline coaching evaluations.
+
+#### 4. Information Horizon: Public Synergy Database vs. Hidden Opponent Decks
+* **The Issue:** The draft implies the AI knows whether an opponent's card is `"is_combo_piece"`. In realistic play, the AI must not read hidden opponent decklists.
+* **Required Adjustment:**
+  * Define two explicit target evaluation modes:
+    1. **Format Staple / Canonical Threat Database (Fair AI):** Matches cards on the battlefield against a well-known public catalog of high-threat combo pieces (e.g., *Thassa's Oracle*, *Kiki-Jiki*, *Food Chain*, *Ashnod's Altar*).
+    2. **Omniscient Scenario Mode (Testing / Scenario Viewer):** Used only in controlled scenario testing where full deck intent is intentionally shared.
+
+#### 5. Tactical Sequences as Priority States rather than Rigid Macros
+* **The Issue:** Tactical scripts such as `bait_countermagic` (`first_cast: "enabler", second_cast: "engine_core"`) risk brittle execution if an opponent introduces unexpected interaction (e.g., casting *Silence*, mass mana drain, or flashing in a stax piece).
+* **Required Adjustment:** 
+  * Model tactics as **Conditional Priority Ladders with Abort Conditions**:
+    ```json
+    {
+      "id": "bait_countermagic",
+      "stage_1": { "cast_role": "enabler" },
+      "stage_2": {
+        "cast_role": "engine_core",
+        "abort_if": ["opponent_open_mana >= 2", "mana_insufficient", "silenced"]
+      }
+    }
+    ```
+  * If the stage 1 bait fails or the board state changes unfavorably, the AI gracefully falls back to default safe play.
+
+---
+
+### 12.3 Summary of Adjustments
+
+| Concept in Draft Spec | Identified Limitation | Recommended Adjustment |
+| :--- | :--- | :--- |
+| **Free-form String Expressions** | Difficult and slow to evaluate in Java rules engine | Replace with **JSON Predicate AST** (`all_of`, `any_of`, `field`, `op`, `value`) |
+| **Card-Level Role Only** | Fails for multi-ability cards (Ghave, Yawgmoth, Planeswalkers) | Add **Ability-Level Role Bindings** (`abilities: { "1": ... }`) |
+| **Real-time Formation Graph Isomorphism** | $O(N^3)$ computational bottleneck in 4-player games | Use **Pre-Compiled Threat Tiers** during live play; full graph in post-game L2 |
+| **Hidden Information Combo Detection** | AI shouldn't cheat by reading opponent hidden decklists | Base combo detection on **Public Canonical Threat Catalog** |
+| **Rigid 2-Step Casting Macros** | Fragile against instant-speed interaction and stax | Implement as **State-Machine Priority Ladders with Abort Guards** |
+
+
