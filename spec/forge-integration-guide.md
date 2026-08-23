@@ -1186,3 +1186,168 @@ interception points — none of the four are the low-risk overlay §12.1 describ
 exist under that name, doesn't carry the data needed, or would require changing the exact heuristic
 baseline behavior this section promises to leave alone.
 
+---
+
+### 12.6 Slice 1 Shipped: Declarative Role Deployment Guards
+
+**Status: implemented, tested, and passing on `killriam/forge` `replay-Features` as of 2026-08-23 —
+13/13 new tests green (`mvn test`), 45/45 in a broader regression pass across existing
+`forge.ai`/`forge.game.scenario`/`forge.ai.ability.*Test` suites, zero failures.** This section
+covers three things: (1) a second grounding pass on §12.2/§11.1's revised "Grounded" hook table —
+that table was edited after §12.5 above was written, presumably in response to it, but wasn't
+independently re-verified against the source before landing here; (2) what got built, where, and
+why, given that pass; (3) the V&V approach actually used, CLI/`mvn test`-first throughout, and what
+is deliberately left for a human.
+
+#### 12.6.1 Second grounding pass — checking the "Grounded" fixes against source
+
+§12.2's interception-point table and §11.1/§11.4 of the source spec were rewritten to answer §12.5.
+Re-checked against the real classes before building on top of them:
+
+| Revised claim | Checked against source | Verdict |
+| :--- | :--- | :--- |
+| Hook entry point is `AiController.chooseSpellAbilityToPlay()` | That's the *public* entry point, but the actual per-candidate loop — where a veto can `continue` past one candidate without touching the others — is inside the *private* `chooseSpellAbilityToPlayFromList()` it delegates to (`AiController.java:1776`, called from `getSpellAbilityToPlay()` at `:1767`). | **Mostly right, one level too shallow.** Built against the real loop, not the public method's name. |
+| Target hook is `ComputerUtilCard.evaluateCreature()` **/ `evaluatePermanent()`** | `evaluateCreature()` is real (`ComputerUtilCard.java:758`). `evaluatePermanent()` **does not exist.** `ComputerUtilCard.getBestAI()` (`:555`) has its own `// TODO - Once we get an EvaluatePermanent this should call getBestPermanent()` comment — Forge's own maintainers flagged this as a gap that doesn't exist yet, not something already there to decorate. | **Half-fabricated.** A `target_rankings` hook covering only creatures is real and buildable; covering "any permanent" needs new baseline Forge functionality first, which is out of scope for a guidance overlay to add unilaterally. Deferred — see §12.6.3. |
+| `forge.deck.DeckRulesLoader` / `loadDeckRules()` | The real class is `forge.ai.DeckRulesLoader` (package `forge.ai`, confirmed via its own `package` declaration) — not `forge.deck`. It has no `loadDeckRules()` method; the real methods are `loadIfNeeded(Deck, File)` and `loadFromFile(File)`. | **Package and method name both wrong.** Extended the real class instead (see §12.6.2). |
+| Forced sequences: wrap with `PredicateEvaluator.evaluate(abort_if)` "before honoring sequence" | `GameRules.forcedPlaySequence` is `Map<String, List<String>>` — a flat list of card-name strings (`GameRules.java:326`), confirmed unchanged. There is no per-step field to attach an `abort_if` predicate to. `forge-game` also has no Gson dependency (confirmed: no `gson` entry in `forge-core/pom.xml`, and `DeckRulesConfig`'s own javadoc states it "lives in forge-core so that `Deck` can hold a reference" specifically *because* JSON parsing needs to stay out of forge-core/forge-game). | **Not a wrap — a schema change.** `tactical_sequences`/`abort_if` needs a new data shape in `GameRules` (or a fully separate mechanism) before any `PredicateEvaluator` call can attach to it. Not attempted in this slice — see §12.6.3. |
+| Decision logging: "structured JSON exporter added as an extension to `AiDecisionLogger`" | Still accurate as of §12.5.4 — `AiDecisionLogger` writes enum-tagged strings to the game log, not JSON, and isn't wired to `ReplayNotationExporter`. The revision doesn't add new information here, just restates the gap. | **Unchanged, still open.** Not attempted in this slice — see §12.6.3. |
+
+One thing the "Grounded" pass got right that's worth confirming rather than just trusting: Gson
+*is* already a `forge-ai` dependency (`forge-ai/pom.xml`), so no new third-party dependency was
+needed for any of this.
+
+#### 12.6.2 What actually shipped
+
+Scope: **`role_bindings` deployment guards only** — the one interception point that survived
+grounding without needing new baseline Forge functionality or a `GameRules` schema change. New
+files, all in `forge-ai/src/main/java/forge/ai/guidance/` (package `forge.ai.guidance`):
+
+| File | Role |
+| :--- | :--- |
+| `PredicateEvaluator.java` | AST evaluator (`all_of`/`any_of`/`none_of`, leaf `field`/`op`/`value`). Takes an `AiGuidanceProfile` parameter the spec's own reference pseudocode doesn't — `active_engine_core_count`/`battlefield.roles`/`hand.roles` need it to resolve a card name to its declared role, which a bare `(Player, Game, Card)` function can't do. Also implements the set operators (`contains`, `contains_any`, `contains_all`, `excludes_all`, `lacks`) that ai-play-guidance-spec.md §10.2's own TypeScript `PredicateOperator` union declares and §4.3's own worked examples use, but that neither spec document's Java reference implementation actually has a case for. |
+| `AiGuidanceProfile.java` | Parses `role_bindings.cards` (→ `CardRoleBinding`, `primary_role` only — ability-level granularity from spec §4.2 not implemented) and `role_bindings.deployment_constraints[]` (`applies_to_role`/`condition`, matching ai-play-guidance-spec.md §4.3's shape — **not** forge-integration-guide.md §12.3's alternate per-card `tactical_roles.<card>.deployment_guard` shape; the two spec documents disagree on this and only one was implemented, deliberately, because it generalizes). Exposes `passesDeploymentGuard(Card, Player, Game)`. |
+| `CardRoleBinding.java` | Small model, `primary_role` only. |
+
+Extended, not replaced: `forge-ai/src/main/java/forge/ai/DeckRulesLoader.java` gained
+`loadAiGuidanceIfNeeded(Deck, File)` — parses `deck_rules.ai_guidance` from the **same** JSON file
+`loadIfNeeded()` already resolves via `Deck.getDecklistSpecPath()`, into an `AiGuidanceProfile`.
+Deliberately **not** attached to `Deck`/`DeckRulesConfig` (forge-core) the way `DeckRulesConfig`
+itself is — `AiGuidanceProfile` is Gson-shaped and forge-core must stay Gson-free (§12.6.1's
+`abort_if` row above explains why). Instead it follows the *exact* existing precedent for exactly
+this problem: `AiController` already holds a forge-ai-only `ComboTracker` object built from
+`DeckRulesConfig`, populated once at game setup via `AiController.initComboTracker(Deck)`
+(`AiController.java:176`), called from `PlayerControllerAi.complainCardsCantPlayWell()`
+(`PlayerControllerAi.java:1410`). `initGuidanceProfile(Deck)` was added right next to it, called
+from the same site, storing the result in a new `AiController.guidanceProfile` field — no change to
+`Deck`, `DeckRulesConfig`, or any forge-core class at all.
+
+The hook itself: one `continue`-guarded block inserted into `AiController`'s real per-candidate
+loop (`chooseSpellAbilityToPlayFromList()`, right before `canPlayAndPayFor(sa)` is called — skips
+the more expensive playability computation entirely for a vetoed candidate):
+
+```java
+if (guidanceProfile != null && !guidanceProfile.passesDeploymentGuard(sa.getHostCard(), player, game)) {
+    game.getGameLog().add(GameLogEntryType.AI_DECISION,
+            "[AI] " + player.getName() + " skips " + sa.getHostCard().getName()
+                    + " | Reason: ai_guidance deployment guard not satisfied");
+    continue;
+}
+```
+
+`guidanceProfile != null` is the entire backward-compatibility guarantee from §12.4 — no
+`ai_guidance` block anywhere in the deck's spec JSON, and this is a true no-op, verified by test
+(§12.6.4's third test case).
+
+#### 12.6.3 Explicitly not in this slice
+
+Kept separate on purpose, not silently dropped:
+
+- **`target_rankings` (scoring/vetoes on removal/counterspell targets).** Blocked on
+  `ComputerUtilCard.evaluatePermanent()` not existing (§12.6.1). A creature-only version is
+  buildable today by decorating `evaluateCreature()` the same way this slice decorates the
+  deployment-guard check point, but that only covers creature targets — removal/bounce/counterspell
+  targeting non-creature permanents would silently fall outside the guidance system entirely, which
+  seemed worse than not shipping it half-covered. Needs a product decision: ship creature-only now,
+  or wait for (or build) a real `evaluatePermanent()` first.
+- **`tactical_sequences`/`abort_if` (scripted baiting lines).** Needs a `GameRules.forcedPlaySequence`
+  data-shape change (flat `List<String>` → something that can carry a per-step abort predicate) —
+  a change to shared forge-game infrastructure, not something a guidance-package overlay can add on
+  its own. Out of scope here; flagging for whoever owns `GameRules`/the forced-sequence mechanism.
+- **Structured L2 decision logging (`AiDecisionLogger` → replay JSON).** Needs routing through
+  `ReplayNotationExporter`, the same fix §9.6 already needed for `GameEventSpellAbilityCast.realSa`
+  reaching that exporter at all. The `AiDecisionLogger` extension point named in §12.2/§11.1's
+  "Grounded" table doesn't itself carry a route there.
+- **`evaluation_profile` (stage-weighted dynamic strategy)** and **Canonical Threat Catalog
+  scoring.** Not attempted — both depend on `target_rankings` existing first, and §12.5.3's finding
+  stands unchanged: there is no `AggressionLevel`/`TradeThreshold`/`SimulationDepth`-style property
+  set to map stage weights onto.
+
+#### 12.6.4 V&V: CLI-first, real tests, real game state
+
+Every claim in this section is backed by a test that runs headlessly via `mvn test` — no GUI, no
+manual scenario click-through, matching this codebase's own `mvn -pl forge-core,forge-game,forge-ai,
+forge-gui,forge-gui-desktop -am test -Dtest=...` pattern (see `MEMORY.md`'s Forge build notes /
+`GETTING_STARTED.md` for the JBR `java.exe` + bundled `mvn.cmd` + `JAVA_HOME` setup this needs on a
+machine with no Java/Maven on `PATH`).
+
+- **`PredicateEvaluatorTest`** (`forge-gui-desktop/src/test/java/forge/ai/guidance/`) — AST
+  combinator logic (`all_of`/`any_of`/`none_of`, unsupported-field fail-open) is pure-data, no game
+  engine. Field-resolution tests (`battlefield.creatures.count`, `battlefield.roles`,
+  `active_engine_core_count`, `hand.roles`, `target.has_indestructible`) run against a **real**
+  `Player`/`Game`/`Card`, not a mock — Forge's own AI test suite has no lightweight fake for
+  `Player` (it's stateful and game-registered), so this extends `forge.ai.AITest` and uses its real
+  headless-game construction (`initAndCreateGame()`), the same base class every existing
+  `forge.ai.ability.*AiTest` class uses.
+- **`AiGuidanceDeploymentGuardTest`** — full production-path proof: a real `.json` fixture on disk
+  (`forge-gui-desktop/src/test/resources/ai_guidance/multiplier_guard.json`, the
+  `multiplier_requires_board` example from ai-play-guidance-spec.md §4.3 verbatim) →
+  `Deck.setDecklistSpecPath()` → `DeckRulesLoader.loadAiGuidanceIfNeeded()` →
+  `AiController.initGuidanceProfile()` → the veto check in a live game. Three cases: guard blocks
+  on an empty board, guard allows once an `engine_core`-role permanent is already in play, and — no
+  `ai_guidance` attached at all — vanilla behavior is provably unchanged.
+- **Getting a *reliable* version of that third test took real debugging, worth recording as a
+  finding in its own right** (not just for this feature — for anyone writing a Forge AI-behavior
+  test at all): the first two attempts (tagging Doubling Season, then Sol Ring, as the guarded
+  card) failed even with **no `ai_guidance` involved whatsoever**. Root cause, found by tracing
+  `AiAbilityDecision` down through `canPlaySa()` → `PermanentAi.checkPhaseRestrictions()`
+  (`forge-ai/src/main/java/forge/ai/ability/PermanentAi.java:38`): vanilla Forge AI deliberately
+  *prefers Main2* for a plain, summoning-sick, non-urgent permanent — "Wait for Main2 if possible"
+  is the literal comment on that line — to avoid revealing information before combat (the same
+  "bluff potential" rationale `docs/AI_DECISION_MAKING_CONCEPT.md` §6.1 documents for its own
+  timing defaults). A test that only drives the game from Main1 to `COMBAT_BEGIN` never reaches the
+  turn where the AI actually intended to act. Fix: call `moveToMain2()` (an existing `AITest`
+  helper) before letting the AI take priority. Two implications beyond this one test: (1) any
+  future headless AI-behavior test in this codebase needs to either run through a full turn or
+  jump straight to the phase the card's own timing logic actually targets, not assume Main1 is
+  enough; (2) **§15.1's "Universal Benchmark Scenarios" runner** (`UNI_MULTIPLIER_NO_ENABLER`,
+  `UNI_THREAT_TRIAGE`, etc., neither spec document's claim that this already runs "headless...in
+  <500ms" was ever true — no such runner exists in this codebase, checked directly) will need the
+  same Main1-vs-Main2 care for any test built on a non-urgent permanent, or it will misreport a
+  correct vanilla-timing decision as a guidance failure.
+- **Regression check:** the existing `DeckRulesLoaderTest`, `ScenarioForcedPlaySequenceTest`,
+  `GameRulesForcedPlayTest`, and the full `forge.ai.ability.*AiTest` family (37 tests, including
+  `BecomeMonarchAiTest`) all still pass unchanged — the new field/hook is additive and
+  null-guarded, confirmed rather than assumed.
+
+#### 12.6.5 What's left for humans
+
+§11.5's five-checkpoint table (source spec) mixes things this slice's tests now cover with things
+that were never CLI-automatable in the first place. Splitting it:
+
+| Checkpoint | Status now |
+| :--- | :--- |
+| **2. Multiplier Guard Sanity** (`UNI_MULTIPLIER_NO_ENABLER`) | **Automated.** `AiGuidanceDeploymentGuardTest.doesNotDeployMultiplierOnEmptyBoard` / `deploysMultiplierOnceAnEngineCoreIsOnline`, §12.6.4. A human no longer needs to hand-run this scenario in the GUI to catch a regression here — CI/`mvn test` does. |
+| **1. Protocol Handshake** (deep-link → `mamo-connector.exe` → Forge spawn) | **Still human/GUI-only.** Cross-process, involves the OS protocol-handler registry and a real browser prompt; nothing this slice touches. |
+| **3. Threat Triage Decision**, **4. Indestructible Veto** (`target_rankings`) | **Still human/GUI-only — and will stay that way until `target_rankings` ships** (§12.6.3). Once it does, these become CLI-automatable the same way Checkpoint 2 just did; until then there's no code path for a human to even test in Forge, guided or not. |
+| **5. Game Log Sync & Coach Display** | **Still human/GUI-only.** Depends on `mamo-Connector` file-sync timing and Playbook's own UI rendering — outside Forge's process entirely, and outside this slice regardless. |
+
+Also newly true and worth a human's attention rather than automation: **the schema ambiguity in
+§12.6.1's third row** (`forge.deck.DeckRulesLoader` vs. the real `forge.ai.DeckRulesLoader`, and
+`role_bindings.deployment_constraints[]` vs. forge-integration-guide.md §12.3's alternate
+`tactical_roles.<card>.deployment_guard` shape) needs a product-level decision, not an engineering
+one — MaMo's own `ai_guidance` authoring UI (Playbook's guidance builder, §10.1 of the source spec)
+has to emit *one* of those two deployment-guard shapes, and this slice only reads the
+`role_bindings.deployment_constraints[]` one. If the frontend was ever built against §12.3's
+per-card shape instead, that's a real mismatch to catch before shipping, not something a test in
+this repo can catch on its own.
+
