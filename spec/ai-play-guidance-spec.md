@@ -14,6 +14,16 @@
 
 ---
 
+## 0. Philosophy & Design Preamble
+
+> **This system is not designed to be pitch-perfect.**
+>
+> The goal is to be **helpful and enjoyable** — to support a player's creative vision for their deck and to make the deck-building and deck lifecycle experience more rewarding. A tool that requires a PhD in game theory to configure is no tool at all. A coaching comment that sparks a new strategic insight, a scenario that helps a player understand why their engine stalled, or a single well-timed warning that prevents a blunder — these are the measures of success.
+>
+> The system should be **progressively useful**: immediately valuable with minimal input, and richer as the player engages more deeply. At every stage, the player remains in control. The AI is a sparring partner and co-pilot, not an oracle.
+
+---
+
 ## 1. Introduction & Objectives
 
 Standard game engines and AI simulators (such as Forge) evaluate plays using generic, card-agnostic heuristics (e.g., maximum mana expenditure, raw creature power/toughness, generic threat ratings). While effective for baseline gameplay, these heuristics fail to capture:
@@ -672,11 +682,89 @@ As detailed in the [Forge Integration Guide](./forge-integration-guide.md):
 
 ## 13. Implementation Roadmap & Conceptual Adjustments
 
-While the `ai_guidance` specification establishes an ideal declarative bridge between strategic intent and game engines, real-world execution inside simulation engines like **Forge** requires bridging theoretical models with game-loop performance, rules engine constraints, and modular code architecture.
+While the `ai_guidance` specification establishes a declarative bridge between strategic intent and game engines, real-world execution requires bridging theoretical models with game-loop performance, rules engine constraints, and modular code architecture.
 
-### 12.1 Pragmatic Implementation Roadmap (What to Implement First)
+The roadmap below adopts an **iterative, player-first approach** — shipping immediately useful capability at each phase rather than waiting for a complete system.
 
-The following 5-stage roadmap prioritizes features that deliver immediate gameplay improvements with minimal architectural disruption:
+### 13.1 Phase 0 — Data Foundations
+
+```
+[ Phase 0 ]  Define Decision Snapshot schema + game log parser
+             Output: Schema spec + parser library
+             Dependency: MTG-REPLAY-NOTATION Level 2 events
+```
+
+### 13.2 Phase 0.5 — Bootstrap Scenario Library *(Cold-Start Solution)*
+
+Before any real game logs exist, authored scenarios provide the initial corpus that seeds policy derivation and immediately makes the system useful. This directly solves the **ground truth cold-start problem**.
+
+#### 0.5a — Universal Scenario Set *(System-Curated, ~7–10 scenarios)*
+
+Covers strategic archetypes shared across Commander decks. Board states use **Mechanic Group references** (not card names) so they remain valid across all decks:
+
+| Scenario ID | Situation | Tactical Question |
+| :--- | :--- | :--- |
+| `UNI_OPEN_ENGINE_DEPLOY` | Engine Core in hand, no protection, opponent has open blue mana | Deploy greedy or bait first? |
+| `UNI_MULTIPLIER_NO_ENABLER` | Multiplier in hand, empty board | Hold or deploy at risk? |
+| `UNI_THREAT_TRIAGE_3TARGETS` | Removal spell in hand, ≥3 opponent targets of different tiers | Which target? |
+| `UNI_WRATH_RECOVERY` | Board wiped ≤2 turns ago, rebuilding phase | Ramp-first or engine-first? |
+| `UNI_PAYOFF_THRESHOLD` | Engine Core + Enabler + Multiplier all online | Is win condition achievable this turn? |
+| `UNI_COMBO_APPROACH` | Opponent Tier 1 Combo piece on board, self has interaction | When to interact vs race? |
+| `UNI_MANA_CURVE_T1_T3` | Turn 1–3, multiple low-CMC plays available | Optimal deployment order? |
+
+Each universal scenario includes:
+- A `board_snapshot` with Group-referenced permanents
+- A `decision_question` (the tactical choice being evaluated)
+- A `known_correct_answer_tag` (the answer the policy must match to pass regression)
+
+**Policies that contradict a universal scenario's `known_correct_answer_tag` are automatically flagged.**
+
+#### 0.5b — Deck-Specific Scenario Set *(Designer-Authored, 5–15 per deck)*
+
+Captures the situations that define *this deck's* engine and strategy. Authored in the **Playbook Page AI Guidance tab**:
+
+- Core engine cards may be named explicitly (e.g. `"Ghave, Guru of Spores"`)
+- All peripheral cards use Mechanic Group references to survive deck tuning
+- Each scenario is tied to a tactical question specific to the deck's mechanic axes
+
+Example:
+```json
+{
+  "id": "ghave_altar_threshold",
+  "name": "Ghave + Altar: Is Combo Live?",
+  "board_state": {
+    "self": {
+      "permanents": [
+        { "name": "Ghave, Guru of Spores", "role": "engine_core" },
+        { "name": "Ashnod's Altar", "role": "engine_core" },
+        { "group": "tokens", "role": "enabler", "min_count": 2 }
+      ]
+    }
+  },
+  "decision_question": "Is the combo threshold met to attempt a win this turn?",
+  "known_correct_answer_tag": "evaluate_payoff_threshold"
+}
+```
+
+#### 0.5c — Confidence Ladder
+
+The system explicitly signals to the player how much real evidence backs a given policy:
+
+| Source of Policy Evidence | Confidence Label | UI Indicator |
+| :--- | :--- | :--- |
+| Universal scenarios only | **Heuristic (unverified)** | ⬜ Grey badge |
+| + Deck-specific scenarios | **Heuristic (deck-calibrated)** | 🟡 Amber badge |
+| + < 20 real game logs | **Low Confidence** | 🟠 Orange badge |
+| + 20–100 real game logs | **Moderate Confidence** | 🔵 Blue badge |
+| + > 100 real game logs | **High Confidence** | 🟢 Green badge |
+
+This ensures the player always knows whether a coaching recommendation is a well-reasoned heuristic or an empirically validated observation — and never mistakes one for the other.
+
+---
+
+### 13.3 Phases 1–5 — Progressive Implementation
+
+The following 5 stages activate progressively as Phase 0 and 0.5 complete:
 
 ```
 [ Stage 1: Role Bindings & Deployment Guards ]  ──▶  High Value / Low Complexity (Immediate win)
@@ -804,4 +892,171 @@ flowchart TD
 | **Hidden Information Combo Detection** | AI shouldn't cheat by reading opponent hidden decklists | Base combo detection on **Public Canonical Threat Catalog** |
 | **Rigid 2-Step Casting Macros** | Fragile against instant-speed interaction and stax | Implement as **State-Machine Priority Ladders with Abort Guards** |
 
+---
 
+## 14. Greenfield Concept: Observation-Driven Policy Synthesis
+
+*Derived from design discussions. This section defines the target architecture independent of any existing implementation.*
+
+### 14.1 Core Principle
+
+The fundamental shift from the original approach is:
+
+> **From:** Author policies → execute in simulation → verify.  
+> **To:** Observe game logs → detect patterns → suggest policies → validate on corpus.
+
+This inverts the authoring burden. Instead of asking a player to write Predicate AST rules from scratch, the system **derives** policies from observed decisions in real or simulated game logs, and the player **reviews and adjusts** them — a 5-minute workflow per policy, not a multi-hour authoring session.
+
+### 14.2 Three-Layer Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Layer 1: OBSERVATION (What happened)                        │
+│   Input:  MTG replay game logs (any source)                 │
+│   Output: Structured Decision Snapshots per board state     │
+│   Key:    No Forge dependency required. Any log source.     │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│ Layer 2: ABSTRACTION (What pattern is this)                 │
+│   Input:  Decision Snapshots                                │
+│   Output: Labeled Board State Archetypes + decision ratings │
+│   Key:    Formation Graph matching + Mechanic Group clusters │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+┌────────────────────────▼────────────────────────────────────┐
+│ Layer 3: POLICY SYNTHESIS (What should happen next time)    │
+│   Input:  Labeled archetypes + outcome data                 │
+│   Output: Ranked guidance rules, exportable to any engine   │
+│   Key:    Policy is derived; user refines, not writes       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 14.3 Decision Snapshot Schema (Layer 1 Output)
+
+Each game log decision produces a structured snapshot — an extension of MTG-REPLAY-NOTATION Level 2:
+
+```json
+{
+  "turn": 4,
+  "phase": "MAIN1",
+  "board_state": {
+    "self": {
+      "permanents": [
+        { "name": "Ghave, Guru of Spores", "roles": ["engine_core"] }
+      ],
+      "hand_count": 3,
+      "mana_available": 4
+    },
+    "opponents": [
+      { "permanents": [{ "name": "Korvold, Fae-Cursed King", "tier": "T2_ENGINE_HUB" }] }
+    ]
+  },
+  "decision": {
+    "type": "cast_spell",
+    "card": "Ashnod's Altar",
+    "alternatives_considered": ["Heroic Intervention", "Skullclamp"]
+  },
+  "outcome_at_turn": {
+    "T+2": "board_wiped",
+    "T+3": "lost_tempo_14_points"
+  }
+}
+```
+
+### 14.4 Board State Archetype Library (Layer 2 Matching)
+
+A small curated set of strategic archetypes — **patterns, not instances**. These generalize across all decks sharing similar mechanic axes:
+
+| Archetype ID | Pattern | Dominant Question |
+| :--- | :--- | :--- |
+| `OPEN_ENGINE_DEPLOY` | Engine Core in hand, no protection, opponent has open interaction | Deploy greedy or bait? |
+| `ENGINE_ONLINE_MULTIPLY` | Active Engine Core, Multiplier in hand, no wipe threat | Cast or hold mana? |
+| `THREAT_TRIAGE_3TARGETS` | Removal spell, ≥3 opponent targets of different tiers | Which target? |
+| `WRATH_RECOVERY` | Board wiped ≤2 turns ago, both players rebuilding | Ramp-first or engine-first? |
+| `PAYOFF_THRESHOLD` | Full formation online (Core + Enabler + Multiplier) | Win condition achievable? |
+| `COMBO_APPROACH` | Opponent Tier 1 Combo piece on board, self has interaction | Interact or race? |
+| `MANA_EFFICIENCY_CURVE` | Turn 1–3, multiple low-CMC plays available | Optimal deployment order? |
+
+Decision Snapshots are matched against archetypes using the Structured Predicate AST. The system writes the predicates; the user does not.
+
+### 14.5 Decision Rating (Empirically Grounded)
+
+Decision quality is measured against the **empirical median** for each archetype across logged games — not against a theoretically authored weight vector:
+
+```
+ΔV_actual   = outcome value at T+3 of chosen action
+ΔV_baseline = median outcome value for this archetype across all logged games
+
+Rating:
+  ΔV_actual >= ΔV_best * 0.95        → OPTIMAL
+  ΔV_actual >= ΔV_baseline           → SOUND
+  ΔV_actual >= ΔV_baseline * 0.80    → INACCURACY
+  otherwise                          → BLUNDER
+```
+
+This grounds coaching feedback in real game data rather than circular self-referential policy comparison.
+
+### 14.6 Derived Policy Structure (Layer 3 Output)
+
+Policies are synthesized from labeled archetype data and presented to the player for review — not authored from scratch:
+
+```json
+{
+  "archetype": "OPEN_ENGINE_DEPLOY",
+  "deck_mechanic_axes": ["tokens", "counters"],
+  "evidence": {
+    "n_samples": 47,
+    "optimal_rate_deploy_immediate": 0.18,
+    "optimal_rate_bait_first": 0.76
+  },
+  "derived_policy": {
+    "recommended_action": "bait_before_deploy",
+    "confidence": 0.76,
+    "condition": {
+      "all_of": [
+        { "field": "opponent_open_mana_color", "op": "contains", "value": "U" },
+        { "field": "self_protection_online", "op": "eq", "value": false }
+      ]
+    }
+  },
+  "generated_explanation": "In 47 observed OPEN_ENGINE_DEPLOY situations with no self-protection and opponent blue mana open, 'bait first' led to optimal outcomes 76% of the time vs 18% for immediate deployment."
+}
+```
+
+### 14.7 Player Interaction Model
+
+The player reviews derived policies — they do not write them. Actions available per policy:
+
+| Action | Effect |
+| :--- | :--- |
+| **Accept** | Policy added to the deck's guidance bundle |
+| **Adjust threshold** | Shift confidence tolerance (e.g. deploy more aggressively) |
+| **Override with exception** | Manually specify a different rule for a known edge case |
+| **Reject** | Discard policy; flag archetype for re-evaluation |
+
+### 14.8 Role of Scenarios in This Model
+
+Scenarios serve **two clearly separated purposes**:
+
+| Purpose | Type | Who Creates | What It Does |
+| :--- | :--- | :--- | :--- |
+| **Benchmark / Unit Test** | Authored (Phase 0.5) | Player / System | Validates that derived policies make the correct call on *known* examples. Test fixture, not training data. |
+| **Observation Corpus** | Logged | Real games / Forge runs | Feeds the Observation Engine to generate policies empirically. More volume = higher confidence. |
+
+> **Critical separation:** Authored scenarios *test policies*. Logged scenarios *generate policies.*
+
+### 14.9 What This Supersedes vs. Preserves
+
+| Prior Design Element | Status | Reason |
+| :--- | :--- | :--- |
+| Full authoring UI for all policy rules | **Superseded** | Authoring burden paradox; replaced by review workflow |
+| Predicate AST for conditions | **Preserved** | Now used by the *system* to write policies, not by the user |
+| Tactical Role Formation Graph | **Preserved** | Core strategic vocabulary; vocabulary unchanged |
+| 10 Eval Dimensions as weight tuning sliders | **Partially superseded** | Replaced by empirical archetype baseline |
+| Scenario Board States in Playbook | **Preserved as test fixtures** | No longer the primary source of policies |
+| Forge as primary execution engine | **Demoted to optional** | One of several valid log sources |
+| Decision Quality 4-tier rating | **Preserved** | Classification scheme is sound; calibration is now empirical |
+| Canonical Threat Catalog | **Preserved** | Feeds archetype matching directly |
+| "Save blunder as scenario" | **Preserved** | Now feeds Observation Engine corpus |
+| Closed-loop single Forge verification | **Replaced** | Replaced by aggregate corpus metric across multiple games |
