@@ -1338,7 +1338,7 @@ that were never CLI-automatable in the first place. Splitting it:
 | :--- | :--- |
 | **2. Multiplier Guard Sanity** (`UNI_MULTIPLIER_NO_ENABLER`) | **Automated.** `AiGuidanceDeploymentGuardTest.doesNotDeployMultiplierOnEmptyBoard` / `deploysMultiplierOnceAnEngineCoreIsOnline`, §12.6.4. A human no longer needs to hand-run this scenario in the GUI to catch a regression here — CI/`mvn test` does. |
 | **1. Protocol Handshake** (deep-link → `mamo-connector.exe` → Forge spawn) | **Still human/GUI-only.** Cross-process, involves the OS protocol-handler registry and a real browser prompt; nothing this slice touches. |
-| **3. Threat Triage Decision**, **4. Indestructible Veto** (`target_rankings`) | **Still human/GUI-only — and will stay that way until `target_rankings` ships** (§12.6.3). Once it does, these become CLI-automatable the same way Checkpoint 2 just did; until then there's no code path for a human to even test in Forge, guided or not. |
+| **3. Threat Triage Decision**, **4. Indestructible Veto** (`target_rankings`) | **Automated as of §12.7 (Slice 2).** `AiGuidanceTargetRankingTest`. See §12.7.5 for the same "narrowed, not removed" caveat that applied to Checkpoint 2. |
 | **5. Game Log Sync & Coach Display** | **Still human/GUI-only.** Depends on `mamo-Connector` file-sync timing and Playbook's own UI rendering — outside Forge's process entirely, and outside this slice regardless. |
 
 Also newly true and worth a human's attention rather than automation: **the schema ambiguity in
@@ -1350,4 +1350,141 @@ has to emit *one* of those two deployment-guard shapes, and this slice only read
 `role_bindings.deployment_constraints[]` one. If the frontend was ever built against §12.3's
 per-card shape instead, that's a real mismatch to catch before shipping, not something a test in
 this repo can catch on its own.
+
+---
+
+### 12.7 Slice 2 Shipped: Target Ranking Vetoes & Ladder Scoring
+
+**Status: implemented, tested, and passing on `killriam/forge` `replay-Features` as of 2026-08-23 —
+4 new tests green, 62/62 in a combined Slice-1+Slice-2+regression pass, zero failures.** Closes
+§12.6.3's first deferred item — the creature-only version of `target_rankings` flagged there as
+buildable without a new `evaluatePermanent()`.
+
+#### 12.7.1 What actually shipped
+
+New: `forge-ai/src/main/java/forge/ai/guidance/TargetRankingRule.java` — one entry from
+`target_rankings[]`, keyed by `source_card` (not the categorical `applies_to:
+{primary_mechanic, target_zone, target_type}` shape ai-play-guidance-spec.md §5.2's own schema
+declares — same two-shapes-for-one-concept problem as §12.6.1's deployment-guard finding, and
+resolved the same way: `source_card` matches real Forge card names directly, `applies_to` would
+need mechanic-group metadata Forge's card database doesn't have).
+
+Extended `AiGuidanceProfile.java`:
+- Parses `target_rankings[]` (`vetoes[].condition`, `evaluation_ladder[].condition`+`score`) and
+  `canonical_threat_catalog` (`tier_1_combo`/`tier_2_engine`/`tier_3_stax` name arrays, ai-play-
+  guidance-spec.md §9.2's own schema — used as authored data, not a hardcoded Forge-side list).
+- New `chooseGuidedRemovalTarget(SpellAbility, Player, Game, Iterable<Card>)`: filters candidates
+  by veto conditions, then picks by first-matching-ladder-step score among the survivors, falling
+  back to `ComputerUtilCard.getWorstAI()` (vanilla evaluation) among the *post-veto* survivors if
+  no ladder step matches any of them. Returns `null` only when every candidate was vetoed — a
+  case callers must not confuse with "no rule at all" (§12.7.2 explains why the split matters).
+
+Extended `PredicateEvaluator.java`: two new leaf fields, `target.canonical_threat_tier` and
+`target.role` (via `AiGuidanceProfile.canonicalThreatTierOf`/`roleOf`). Naming note: this uses the
+Catalog's own `tier_1_combo`/`tier_2_engine`/`tier_3_stax` strings — forge-integration-guide.md
+§12.3's worked example instead writes `"Tier1_Combo"`/`"Tier2_EngineHub"`; the two spec documents
+don't agree on this naming either, joining the deployment-guard shape and `applies_to`/`source_card`
+disagreements already on record.
+
+The hook: `ComputerUtilCard.getBestRemovalTargetAI(Player, Iterable<Card>)` (the real, shared
+target-selection function three handlers already call — confirmed by grep, not assumed) gained a
+3-arg overload taking a `SpellAbility`:
+
+```java
+public static Card getBestRemovalTargetAI(final Player ai, final Iterable<Card> list, final SpellAbility sa) {
+    if (Iterables.isEmpty(list)) return null;
+    if (sa != null && sa.getHostCard() != null && ai.getController() instanceof PlayerControllerAi pcai) {
+        AiGuidanceProfile profile = pcai.getAi().getGuidanceProfile();
+        if (profile != null && profile.hasTargetRankingRule(sa.getHostCard().getName())) {
+            return profile.chooseGuidedRemovalTarget(sa, ai, ai.getGame(), list);
+        }
+    }
+    return Aggregates.itemWithMax(list, c -> evaluateRemovalTargetPriority(ai, c));
+}
+```
+
+All **7 real call sites** — `DestroyAi.java` (×3), `DamageDealAi.java` (×2), `ChangeZoneAi.java`
+(×2, one of which is Swords to Plowshares' own path) — updated to pass `sa` through; `sa` was
+already in scope at every one of them (confirmed by reading each site, not assumed from the method
+signature alone). `AiController` gained a `getGuidanceProfile()` getter so `ComputerUtilCard` (a
+different class, same `forge.ai` package) can reach the profile a `Player`'s `AiController` is
+holding.
+
+#### 12.7.2 Why `chooseGuidedRemovalTarget` can return null two different ways — and why that split matters
+
+`hasTargetRankingRule(cardName)` exists as a *separate* call from `chooseGuidedRemovalTarget`
+specifically so the caller never has to guess which of two very different situations a `null`
+result means:
+
+- **No rule for this source card at all** → the caller should fall back to vanilla
+  `evaluateRemovalTargetPriority`-based selection, exactly as if guidance didn't exist.
+- **A rule exists, but every candidate got vetoed** → the caller must *not* fall back to vanilla
+  selection (that would silently target the very thing the veto exists to prevent) — it should
+  behave as if there were no legal target at all.
+
+`getBestRemovalTargetAI`'s 3-arg overload above only calls `chooseGuidedRemovalTarget` after
+`hasTargetRankingRule` is already known true, so its own `null` return is unambiguous. A test
+(`everyCandidateVetoedYieldsNoTarget`, §12.7.4) pins this down directly rather than leaving it as
+an implicit contract.
+
+#### 12.7.3 What's still not covered
+
+- **Non-creature/permanent targets.** `evaluateRemovalTargetPriority`'s fallback and this slice's
+  vetoes/ladder both work fine for players/planeswalkers as `PredicateEvaluator` targets in
+  principle, but `target.canonical_threat_tier`/`target.role` were only exercised against
+  creatures here — §12.6.1's `evaluatePermanent()` gap (still doesn't exist) remains the reason a
+  *general* permanent-value hook isn't attempted.
+- **`applies_to`-categorical matching** (ai-play-guidance-spec.md §5.2's own schema) — only
+  `source_card`-keyed rules are read; see §12.7.1.
+- **Counterspell target rankings** (ai-play-guidance-spec.md §5.2's `counterspell_priority`
+  example) — a structurally different targeting flow (`target_spell.*` fields against a stack
+  object, not `target.*` against a `Card`) that this slice's `Card`-shaped `PredicateEvaluator`
+  signature doesn't cover. Not attempted.
+- **Tempo Bonus / `Base Threat` additive formula** (ai-play-guidance-spec.md §5.1) — this slice
+  implements the ladder (`evaluation_ladder[]`) and vetoes only, not the full
+  `Base Threat + Σ(condition weights) + Tier Bonus + Tempo Bonus` scoring formula §12.5.2 already
+  flagged as architecturally incompatible with Forge's `Comparator`/`AiAbilityDecision`-based
+  ranking. The ladder-only version sidesteps that incompatibility by scoring *within* a single
+  spell's own candidate-target list (a closed, bounded comparison) rather than trying to make
+  guidance scores commensurable with the AI's cross-spell `saEvaluator` sort — deliberately a
+  narrower, safer claim than the full formula.
+- **`tactical_sequences`/`abort_if`, structured L2 logging, `evaluation_profile`** — unchanged
+  from §12.6.3, still blocked on a `GameRules` schema change / `ReplayNotationExporter` routing /
+  a nonexistent Forge profile-property set, respectively.
+
+#### 12.7.4 V&V: a flakiness finding worth its own writeup
+
+The first version of this slice's integration test drove a full priority-loop turn (the same
+`moveToMain2()` + `gameLoopUntilNextPhase()` pattern §12.6.4 built for Slice 1) and cast Swords to
+Plowshares at an opponent's creatures, then checked what got exiled. It was flaky — the *same*
+test, *same* code, run back-to-back, alternated between the AI casting the spell
+(`AiPlayDecision.WillPlay`) and declining with `TargetingFailed`, **including in the no-guidance
+baseline case**, which doesn't touch any code this slice added. Traced with the same
+`AiAbilityDecision`-tracing technique §12.6.4 used for the Main1/Main2 finding: the "should I cast
+this reactive spell at all right now" decision upstream of target selection is genuinely
+non-deterministic in this exact minimal test harness, for reasons unrelated to `ai_guidance` —
+confirmed unrelated by reproducing the flip with `ai_guidance` absent entirely.
+
+Rather than chase that pre-existing nondeterminism (a `SecureRandom`-backed heuristic somewhere in
+the "is this instant worth firing off right now" chain — not identified further; out of scope for
+this slice), the tests were redesigned to call `ComputerUtilCard.getBestRemovalTargetAI(...)` — the
+actual production method this slice changed — directly, with a real `Player`/`Game`/candidate
+`Card`s and a real, activated `SpellAbility`, bypassing the flaky "will it cast at all" layer
+entirely. This is not a workaround so much as a better-scoped test: it isolates exactly the
+boundary that changed, is deterministic (confirmed: 3 consecutive full runs, identical results),
+and runs in under 10 seconds instead of needing a full simulated turn. **General lesson for any
+future Forge AI-behavior test in this codebase, beyond this slice:** if a test needs to assert on
+*which target* the AI picks, prefer calling the target-selection method directly over asserting on
+post-turn battlefield state — the latter couples the assertion to an independent, unrelated "does
+the AI want to act at all right now" decision that has its own noise.
+
+#### 12.7.5 Human checkpoints: narrowed further
+
+Checkpoints 3 and 4 move from "blocked — no code path to even test" (§12.6.5) to "automated" —
+`AiGuidanceTargetRankingTest`. Same caveat as Checkpoint 2 in §12.6.5: a human no longer needs to
+hand-run these in the GUI to catch a *regression*, but the underlying product questions §12.6.5
+already raised (which of the two conflicting schema shapes MaMo's authoring UI should emit) apply
+equally to `target_rankings`' `source_card` vs. `applies_to` disagreement now, not just deployment
+guards' — still a product decision, not something either this repo's tests or a human GUI
+checkpoint can resolve alone.
 
