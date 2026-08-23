@@ -1488,3 +1488,125 @@ equally to `target_rankings`' `source_card` vs. `applies_to` disagreement now, n
 guards' — still a product decision, not something either this repo's tests or a human GUI
 checkpoint can resolve alone.
 
+---
+
+### 12.8 Slice 3 Shipped: Structured L2 Decision Logging (the "Coaching Pipeline")
+
+**Status: implemented, tested, and passing on `killriam/forge` `replay-Features` as of 2026-08-23
+— 4 new tests green, 66/66 in a combined Slice-1+2+3+regression pass, zero failures.** Closes
+§12.6.3's third deferred item — routing guidance decisions into the actual replay JSON instead of
+only the human-readable game log, which is what §12.2's fourth hook and ai-play-guidance-spec.md's
+Stage 5 ("Coaching & L2 Decision Logging") describe.
+
+#### 12.8.1 Grounding this one before building it
+
+§12.5.4 already found `AiDecisionLogger` writes plain enum-tagged strings, not JSON, and isn't
+wired to `ReplayNotationExporter`. Checked what `ReplayNotationExporter`'s actual L2 output looks
+like before assuming "wire it up" was a small change: `L2Unit`
+(`forge-game/src/main/java/forge/game/log/model/L2Unit.java`) is a **per-turn** snapshot (`before`/
+`after` game state, which L1 event indices happened that turn), not the per-decision "candidate
+options + evaluated rules + Δscore" record §12.2's hook description implies. Its `Annotations`
+inner class exists for exactly this kind of note (`decisionQuality`, `alternativeLines`,
+`teachingNotes`) but was completely unpopulated everywhere in the codebase before this slice —
+confirmed by grep, not assumed — so there was no existing convention to match, only a shape to
+extend. `StackItem` (which *is* decision-granular, with its own `choices: Map<String,Object>`
+field) would have been a better fit in principle, but `ReplayNotationExporter` hardcodes
+`unit.setStack(new ArrayList<>())` today ("could be populated from events") — a real, separate,
+pre-existing gap this slice does not attempt to close.
+
+#### 12.8.2 What actually shipped
+
+Followed the exact precedent §9.6 already established for "AI-side code needs to get structured
+data into the replay exporter": extend a `GameEvent`, have `GameLogFormatter` (the actual
+`IGameEventVisitor` implementation, confirmed by reading it — `ReplayNotationExporter` itself
+isn't a visitor) forward it to the exporter. That's how `GameEventSpellAbilityCast` gained its
+`realSa` field; this slice adds a new event rather than overloading an existing one, since a
+guidance decision isn't a cast/activate at all.
+
+New: `forge-game/src/main/java/forge/game/event/GameEventAiGuidanceDecision.java` — a `record`
+with only primitive fields (`playerName`, `cardName`, `decisionType`, `ruleId`, `scoreDelta`,
+`reason`), deliberately carrying no `forge.ai.guidance` types — the same forge-game-must-stay-
+free-of-forge-ai discipline `GameRules.forcedPlaySequence` already follows (§12.6.1), now extended
+to this new event too. `decisionType` is one of `"deployment_guard_blocked"`, `"target_selected"`,
+`"target_all_vetoed"`, `"target_fallback"`.
+
+Extended `IGameEventVisitor<T>` (+ its `Base<T>` no-op default) with a `visit(GameEventAiGuidanceDecision)`
+method — the standard, additive way this codebase adds a new event type; confirmed only `Base<T>`
+implements the interface directly (grepped, not assumed), so every other visitor in the codebase
+inherits the no-op default unaffected. `GameLogFormatter.visit(GameEventAiGuidanceDecision)`
+produces the human-readable `GameLogEntry` (same `AI_DECISION` type `AiDecisionLogger`'s own
+entries already use) **and**, when a `ReplayNotationExporter` is attached, calls its new
+`logGuidanceDecision(...)`.
+
+`ReplayNotationExporter` buffers decisions per turn (`turnGuidanceDecisions`, reset at
+`onTurnBegin()` alongside every other per-turn counter already there — same pattern, not a new
+one) and drains them into `L2Unit.Annotations.guidanceDecisions` (a new field + nested
+`GuidanceDecision` class, mirroring the event's own fields) inside the existing
+`generateL2UnitForTurn()`.
+
+`AiGuidanceProfile` fires the event at its two real decision points, now that it has somewhere
+meaningful to send it:
+- `passesDeploymentGuard()` fires `"deployment_guard_blocked"` (with the constraint's own authored
+  `reason` — previously parsed and silently discarded, see §12.8.3) whenever it returns `false`.
+  `AiController`'s hook no longer needs its own manual game-log call — firing the event now
+  produces that log line too, via `GameLogFormatter`.
+- `chooseGuidedRemovalTarget()` fires exactly one event per call: `"target_selected"` (with the
+  matched `evaluation_ladder` step's `score` and `description` — also previously discarded, see
+  §12.8.3) when a ladder step decided it, `"target_all_vetoed"` when every candidate was vetoed,
+  or `"target_fallback"` when vetoes ran but no ladder step matched any survivor. Not one event
+  per vetoed *candidate* — that would fire on every evaluation pass, not just the resolved
+  decision, and risked exactly the kind of noise §11.5's "no intrusive false positives" ergonomics
+  goal warns against.
+
+#### 12.8.3 A small enrichment this slice needed first: capturing `reason`/`description` at all
+
+Slices 1 and 2 parsed `deployment_constraints[].reason`, `vetoes[].reason`, and
+`evaluation_ladder[].description` only far enough to *skip past* them — the authored explanation
+text was never stored anywhere. Coaching output with no "why" isn't coaching output, so this slice
+had to go back and capture them: `TargetRankingRule.Veto` and `TargetRankingRule.LadderStep`
+(both records) gained `reason`/`description` fields, and `AiGuidanceProfile`'s private
+`DeploymentConstraint` record (new — previously just a bare `JsonObject` in the map) carries the
+constraint's own `reason` alongside its `condition`. None of this changes what Slices 1/2 already
+verified (which card gets blocked, which target gets picked) — confirmed by the full 66-test
+regression pass — it only stops discarding text that was always present in the authored JSON.
+
+#### 12.8.4 V&V
+
+`AiGuidanceDecisionLoggingTest` (4 tests, `forge-gui-desktop/src/test/java/forge/ai/guidance/`):
+two register a plain Guava `EventBus` subscriber directly on a real game and assert on the fired
+event's exact structured fields (independent of anything downstream — proves the event itself
+carries the right data even if the exporter wiring were absent); one wires a real
+`ReplayNotationExporter` into the game's already-registered `GameLogFormatter` — confirmed via
+reading `Game.java` that `Game`'s own constructor auto-registers `gameLog.getEventVisitor()` as an
+event subscriber, so this test attaches the exporter to that *already-live* formatter rather than
+building new plumbing — and asserts on the resulting `L2Unit.Annotations.guidanceDecisions`; one
+confirms zero events fire when nothing in the profile applies (backward compatibility, mirroring
+every prior slice's own such test). All four call `passesDeploymentGuard()`/
+`chooseGuidedRemovalTarget()` and `onTurnBegin()` directly rather than driving a full priority-loop
+turn — the same §12.7.4 lesson applied a third time, this time from the start instead of after
+discovering flakiness the hard way.
+
+One fixture-reuse mistake caught immediately by the tests, worth naming rather than quietly
+fixing: the first draft of this slice's tests still referenced "Sol Ring" as the guarded card in
+`multiplier_guard.json`, copied from an earlier draft of that fixture before Slice 1's own
+debugging (§12.6.4) renamed the tagged card to "Runeclaw Bear". Both new tests failed immediately
+and unambiguously (the guard silently no-op'd — no role bound to "Sol Ring" in the current
+fixture, so `passesDeploymentGuard` trivially returned `true`) rather than passing for the wrong
+reason, which is the point of writing the assertion before checking the fixture matches it.
+
+#### 12.8.5 What's still not covered
+
+- **`StackItem` population.** The genuinely decision-granular part of the L2 schema
+  (`unit.stack[].choices`) remains hardcoded empty, unrelated to this slice. A guidance decision
+  tied to a *specific stack item* (not just "sometime this turn") would need that gap closed
+  first — out of scope here, flagged for whoever owns `ReplayNotationExporter` generally.
+- **Per-vetoed-candidate detail.** Only the *outcome* fires an event; a human coach wanting to see
+  every candidate that was considered and why it was passed over (the §10.1 UI mockup's "Total
+  Score: 160 (Selected over 8/8 Vanilla Beater with score 30)" framing) would need per-candidate
+  events, deliberately not built here (§12.8.2's noise concern).
+- **`evaluation_profile`/Canonical Threat Catalog ΔV breakdown.** This slice logs *which* rule
+  fired, not a full ΔV vector across the 10 evaluation dimensions — still blocked on
+  `evaluation_profile` itself being unbuilt (§12.6.3, unchanged).
+- **`tactical_sequences`/`abort_if`.** Still unchanged from §12.6.3/§12.7.3 — needs the
+  `GameRules.forcedPlaySequence` schema change, unrelated to logging.
+
