@@ -666,6 +666,160 @@ As detailed in the [Forge Integration Guide](./forge-integration-guide.md):
 2. The **`mamo-Connector`** places the guidance configuration in Forge's deck/profile directory or launches Forge with the guidance payload.
 3. Forge's `AiController` loads the `ai_guidance` configuration, establishing the dynamic scoring overrides and rule hooks for the match.
 
+### 11.4 Forge AI Java Implementation Reference (Drop-in Architecture)
+
+The Java integration in `forge-ai` uses four modular classes:
+
+#### 1. `forge.ai.guidance.PredicateEvaluator`
+Evaluates the JSON Predicate AST against the current `Player` and `Game` state in $O(1)$:
+```java
+package forge.ai.guidance;
+
+import forge.game.Game;
+import forge.game.player.Player;
+import forge.game.card.Card;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+
+public class PredicateEvaluator {
+    public static boolean evaluate(JsonObject ast, Player aiPlayer, Game game, Card targetCard) {
+        if (ast.has("all_of")) {
+            JsonArray arr = ast.getAsJsonArray("all_of");
+            for (JsonElement el : arr) {
+                if (!evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return false;
+            }
+            return true;
+        }
+        if (ast.has("any_of")) {
+            JsonArray arr = ast.getAsJsonArray("any_of");
+            for (JsonElement el : arr) {
+                if (evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return true;
+            }
+            return false;
+        }
+        if (ast.has("none_of")) {
+            JsonArray arr = ast.getAsJsonArray("none_of");
+            for (JsonElement el : arr) {
+                if (evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return false;
+            }
+            return true;
+        }
+        
+        // Leaf evaluation
+        String field = ast.get("field").getAsString();
+        String op = ast.get("op").getAsString();
+        JsonElement val = ast.get("value");
+        return evaluateLeaf(field, op, val, aiPlayer, game, targetCard);
+    }
+
+    private static boolean evaluateLeaf(String field, String op, JsonElement val, Player aiPlayer, Game game, Card target) {
+        switch (field) {
+            case "opponent_open_mana":
+                int openMana = countOpponentOpenMana(aiPlayer, game);
+                return compareInt(openMana, op, val.getAsInt());
+            case "opponent_mana_colors":
+                return opponentHasManaColor(aiPlayer, game, val.getAsString());
+            case "target.canonical_threat_tier":
+                return target != null && target.hasKeyword(val.getAsString());
+            case "target.has_indestructible":
+                return target != null && (target.hasKeyword("Indestructible") || target.hasKeyword("Hexproof"));
+            default:
+                return true;
+        }
+    }
+    
+    private static boolean compareInt(int a, String op, int b) {
+        switch (op) {
+            case "==": return a == b;
+            case "!=": return a != b;
+            case ">":  return a > b;
+            case ">=": return a >= b;
+            case "<":  return a < b;
+            case "<=": return a <= b;
+            default: return false;
+        }
+    }
+
+    private static int countOpponentOpenMana(Player aiPlayer, Game game) {
+        int max = 0;
+        for (Player opp : aiPlayer.getOpponents()) {
+            int untapped = opp.getCardsIn(forge.game.zone.ZoneType.Battlefield).filter(c -> c.isLand() && c.isUntapped()).size();
+            if (untapped > max) max = untapped;
+        }
+        return max;
+    }
+
+    private static boolean opponentHasManaColor(Player aiPlayer, Game game, String color) {
+        for (Player opp : aiPlayer.getOpponents()) {
+            for (Card c : opp.getCardsIn(forge.game.zone.ZoneType.Battlefield)) {
+                if (c.isLand() && c.isUntapped() && c.getManaColors().contains(color)) return true;
+            }
+        }
+        return false;
+    }
+}
+```
+
+#### 2. Deployment Guard Hook (`AiController.getSpellAbilitiesToPlay()`)
+```java
+// Check role deployment guard before adding candidate ability to evaluated list
+Card sourceCard = sa.getHostCard();
+if (sourceCard != null && guidanceProfile != null) {
+    CardRoleBinding binding = guidanceProfile.getRoleBinding(sourceCard.getName());
+    if (binding != null && binding.getDeploymentGuard() != null) {
+        boolean guardPassed = PredicateEvaluator.evaluate(
+            binding.getDeploymentGuard(), 
+            aiPlayer, 
+            aiPlayer.getGame(), 
+            null
+        );
+        if (!guardPassed) {
+            // Guard failed — veto candidate for this priority point (e.g. Doubling Season without enabler)
+            continue; 
+        }
+    }
+}
+```
+
+#### 3. Target Scoring & Hard Veto Hook (`SpellAbilityAi.chooseTargetsAI()`)
+```java
+// Apply target_rankings ladder & hard vetoes
+if (guidanceProfile != null) {
+    TargetRankingRule rule = guidanceProfile.findTargetRule(sa.getHostCard());
+    if (rule != null) {
+        // 1. Check Hard Vetoes
+        for (TargetVeto veto : rule.getVetoes()) {
+            if (PredicateEvaluator.evaluate(veto.getCondition(), aiPlayer, game, candidateTargetCard)) {
+                candidateTargets.remove(candidateTargetCard); // VETO: skip indestructible/invalid target
+                break;
+            }
+        }
+        // 2. Apply Score Bonus
+        for (TargetLadderStep step : rule.getLadder()) {
+            if (PredicateEvaluator.evaluate(step.getCondition(), aiPlayer, game, candidateTargetCard)) {
+                candidateScore += step.getScore(); // +100 Combo, +70 Engine Hub
+                break;
+            }
+        }
+    }
+}
+```
+
+---
+
+### 11.5 Human Verification & Testing Protocol (Where Human Support is Needed)
+
+While unit tests and headless runners verify technical contracts, **human testing is essential** to validate real-world user experience and engine handshakes. The 5 critical human checkpoints are:
+
+| Checkpoint | What the Human Tests | Expected Outcome | Failure Condition |
+| :--- | :--- | :--- | :--- |
+| **1. Protocol Handshake** | Click **"⚡ Playtest"** in MaMo Playbook. | Browser opens prompt (*"Open MaMo Connector?"*), `mamo-connector.exe` launches Forge with `.dck` and `.policy.json` written to `%APPDATA%/Forge/`. | Protocol unregistered, popup blocked, or Forge fails to spawn. |
+| **2. Multiplier Guard Sanity** | Run scenario `UNI_MULTIPLIER_NO_ENABLER` in Forge (Empty board, *Doubling Season* in hand). | Forge AI casts mana rock or passes; does **not** drop Doubling Season naked. | AI casts Doubling Season immediately and passes. |
+| **3. Threat Triage Decision** | Run scenario `UNI_THREAT_TRIAGE` in Forge (*Korvold* Tier 2 + *Ghalta* 12/12 on board; AI holds *Swords to Plowshares*). | AI casts Swords targeting **Korvold** (+70 Engine Hub bonus). | AI targets Ghalta based on raw power/toughness. |
+| **4. Indestructible Veto** | Run scenario `UNI_VETO_INDESTRUCTIBLE` in Forge (*Avacyn* + *Sun Titan* on board; AI holds *Murder*). | AI destroys **Sun Titan** and avoids wasting spell on Avacyn. | AI casts Murder targeting Avacyn. |
+| **5. Game Log Sync & Coach Display** | Play 3 turns and close Forge match. | `mamo-Connector` detects new log in `%APPDATA%/Forge/gamelogs/`, syncs to backend, and Playbook Replay Coach displays decision rating badges (★ OPTIMAL, ✔ SOUND, ✖ BLUNDER). | Game log missed, sync error, or coaching badges missing. |
+
 ---
 
 ## 12. Summary & Integration Matrix
