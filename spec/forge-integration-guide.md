@@ -1020,14 +1020,14 @@ public class PredicateEvaluator {
 
 ---
 
-#### 2. Interception Points in Existing Forge Code
+#### 2. Interception Points in Existing Forge Code (Grounded)
 
 | File to Modify | Target Method | Insertion Logic |
 | :--- | :--- | :--- |
-| **`forge.ai.AiController`** | `getSpellAbilitiesToPlay()` | Check `CardRoleBinding.getDeploymentGuard()`. If `PredicateEvaluator.evaluate()` is `false`, skip adding the `SpellAbility` to candidates (prevents naked Multiplier drops). |
-| **`forge.ai.AiController`** | `chooseSpellAbilityToPlay()` | Enforce phase timing preferences (`pre_combat_main` vs `post_combat_main`) before final selection. |
-| **`forge.ai.SpellAbilityAi`** | `chooseTargetsAI()` | Before executing default target ranking: (1) apply `target_rankings` hard vetoes to filter out indestructible/invalid permanents, (2) apply `target_rankings` score ladder bonuses (`+100` combo, `+70` engine hub). |
-| **`forge.ai.logging.AiDecisionLogger`** | `logDecision()` | Include candidate options, evaluated guidance rules, and delta scores in Level 2 replay log output. |
+| **`forge.ai.AiController`** | `chooseSpellAbilityToPlay()` | Evaluate `CardRoleBinding.getDeploymentGuard()` before sorting candidate abilities. If false, filter out candidate (prevents naked Multiplier drops). |
+| **`forge.ai.ComputerUtilCard`** | `evaluateCreature()` / `evaluatePermanent()` | Centralized threat scoring: (1) apply `target_rankings` hard vetoes to return -9999 for indestructible/invalid targets, (2) apply `target_rankings` tier score bonus (`+100` combo, `+70` engine hub). Handled automatically across all 100+ spell ability handlers. |
+| **`forge.deck.DeckRulesLoader`** | `loadDeckRules()` | Ingest `deck_rules.ai_guidance` JSON block directly using Gson into `AiGuidanceProfile`. |
+| **`forge.ai.logging.AiDecisionLogger`** | `logDecision()` | Structured JSON logging hook to export candidate options, evaluated guidance rules, and delta scores for Replay Coach. |
 
 ---
 
@@ -1068,4 +1068,121 @@ When a scenario is launched from MaMo, Forge will find the policy bundled inside
 ### 12.4 Backward Compatibility Guarantee
 
 If no `ai_guidance` profile is present (or `guidanceProfile == null`), all four hooks **no-op immediately**, preserving Forge's default vanilla AI behavior with zero performance regression.
+
+---
+
+### 12.5 Reality Check: Contradictions With Current Forge AI Architecture
+
+**Status: audit only — nothing in this section has been implemented or changed on the Forge side.
+No Forge source file was modified to produce it.** Checked against `killriam/forge`,
+`replay-Features`, 2026-08-23, by reading the actual classes named in §12.2 and in
+`ai-play-guidance-spec.md` §11.4, not just their docs. Where §12.1–12.4 above (and the source spec's
+§11) name a specific method, class, or config property as an integration point, this section
+records whether that thing exists as described. **The instruction driving this audit: do not change
+Forge's core AI principles to make the spec fit — where they don't fit cleanly, write the
+contradiction down instead.** Forge's own core principles (`docs/AI_DECISION_MAKING_CONCEPT.md` §1)
+are: rules engine/decision agent separation via `PlayerController`, a phase-driven priority loop, and
+**decentralized per-ability heuristics** (~100 independent `SpellAbilityAi` handlers) rather than one
+central scorer. Several of §12's hooks assume the opposite of that third principle.
+
+#### 12.5.1 Named hook methods that don't exist
+
+| §12.2 / §11.4 claims | Reality (file:line) | Contradiction |
+| :--- | :--- | :--- |
+| `forge.ai.AiController.getSpellAbilitiesToPlay()` | No method with this name exists anywhere in `forge-ai`. The real entry point is `AiController.chooseSpellAbilityToPlay()` (`AiController.java:1432`), which returns `List<SpellAbility>` and internally delegates to `chooseSpellAbilityToPlayFromList()` (`:1762`). | The proposed "check deployment guard, skip adding to candidates" pseudocode has nowhere to attach — there is no exposed per-candidate accumulation loop at that name to intercept. |
+| `forge.ai.SpellAbilityAi.chooseTargetsAI()` | No method with this name exists on `SpellAbilityAi` or any of its ~100 subclasses (checked `DestroyAi.java` as a representative handler). Target selection is spread across heterogeneous overrides — `chooseSingleCard()`, `chooseSingleEntity()`, `chooseSinglePlayer()`, or inline inside `checkApiLogic()`/`doTriggerNoCost()`/handler-specific methods like `DestroyAi.doLandForLandRemovalLogic()` — that differ per handler. | §12.2's target-veto/scoring hook and §11.4 #3's `chooseTargetsAI()` code sample have no single call site. Reaching parity would mean editing on the order of 100 separate handler classes individually, which directly conflicts with §12.1's own promise ("without breaking existing heuristic baselines") — that's not an overlay, it's a rewrite of the decentralized-handler principle itself. |
+| `SpellAbilityAi.canPlayAI()` (named in both `AI_DECISION_MAKING_CONCEPT.md`'s own class-summary and mirrored in the guidance spec's §11.1 table) | `SpellAbilityAi.java:37`'s class javadoc claims this name, but the actual methods are `canPlay()` (protected, `:70`) and `canPlayWithSubs()` (public, `:54`). | This mismatch predates the guidance spec — it's already stale inside Forge's own concept doc — and the guidance spec inherited the wrong name from it rather than the source. |
+
+#### 12.5.2 No additive "Final Score" — real ranking is a `Comparator` + an enum-tagged rating record
+
+Forge already has a scoring/decision type, and it isn't the one §5.1's
+`Base Threat + Σ(condition weights) + Tier Bonus + Tempo Bonus` formula assumes:
+
+- Candidate spells are ranked by `all.sort(ComputerUtilAbility.saEvaluator)` — a `Comparator<SpellAbility>` — inside `chooseSpellAbilityToPlayFromList()` (`AiController.java:1767`), not by comparing an accumulated numeric total across all candidates.
+- Per-ability playability is `AiAbilityDecision` (`AiAbilityDecision.java`), a **record** of `(int rating, AiPlayDecision decision, SpellAbility sa)`. `willingToPlay()` already has its own situational rating-boost logic baked in (turn/phase-based `boosted` adjustments, `MIN_RATING = 30` threshold) — it is not a blank slate waiting for an external additive term.
+
+Bolting `PreferenceBonus(a)` on top means either (a) running a second, disconnected scoring pass that the `Comparator`/`AiAbilityDecision` machinery never sees — so a guidance bonus can never actually change what gets played, defeating the point — or (b) changing what `AiAbilityDecision.rating` means and how `saEvaluator` compares candidates, which **is** a core-principle change (altering the vanilla heuristic baseline §12.1 promises to leave alone), not an overlay.
+
+#### 12.5.3 `evaluation_profile` stage weights have no runtime property to map onto
+
+§7 (and Stage 4, §13.3) describe mapping `evaluation_profile.stages[stage].weights` onto Forge `.ai`
+profile properties `AggressionLevel`, `TradeThreshold`, `LifeDangerThreshold`, `MulliganModel`,
+`SimulationDepth` — a table `AI_DECISION_MAKING_CONCEPT.md` §6 (Forge's own doc) also states nearly
+verbatim. Checked against the real property list (`forge-ai/src/main/java/forge/ai/AiProps.java`,
+82 enum constants) and the shipped profile files (`forge-gui/res/ai/*.ai`): **none of those five
+names exist.** The closest real properties are things like `MULLIGAN_THRESHOLD`, `PLAY_AGGRO`,
+`CHANCE_TO_ATTACK_INTO_TRADE`, `TOKEN_GENERATION_ABILITY_CHANCE` — dozens of narrow, situational
+knobs, not five clean stage-weighted dials.
+
+Worse than a naming gap: "aggression" in the real code (`AiAttackController.aiAggression`,
+`AiAttackController.java:80`, computed at `:1229–1269`) is a **per-combat int (0–6), recomputed fresh
+every combat** from board state (life totals, force comparison, a chance roll) — it is not a
+persisted profile-level setting an external system could overwrite once per game stage. Calling
+Stage 4 "Low Effort" (§13.3) is only true if this property already existed to map onto; it doesn't,
+so "map weights onto AiProfile variables" would mean inventing a new parallel config surface *and*
+rewiring `AiAttackController`'s per-combat computation to defer to it — a change to how combat
+aggression itself is decided, which is core combat-math behavior, not an overlay on top of it.
+
+#### 12.5.4 `AiDecisionLogger` already exists — but as a plain-text game-log writer, not an L2/JSON emitter
+
+§12.2's 4th hook and the source spec's Stage 5 describe extending `logDecision()` to "include
+candidate options, evaluated guidance rules, and delta scores in Level 2 replay log output," framed
+as a light addition to an existing method. The real class
+(`forge-ai/src/main/java/forge/ai/AiDecisionLogger.java`) does exist, but:
+
+- `logDecision(Player ai, SpellAbility sa, AiPlayDecision decision)` takes an **enum** reason (`WillPlay`, `Removal`, `Tempo`, …), not a numeric score or a guidance rule id.
+- It writes a human-readable string via `game.getGameLog().add(GameLogEntryType.AI_DECISION, ...)` — there is no `views_l2` concept, no ΔV breakdown, and no connection to `ReplayNotationExporter` (the actual JSON replay-notation exporter, a separate class). §9.6 of this same guide already documents, from direct experience, that reaching `ReplayNotationExporter` from a game event required a dedicated fix (`GameEventSpellAbilityCast` gaining a `realSa` field) because the event this logger's own trigger point subscribes to didn't carry enough data — the same gap applies here.
+
+Wiring guidance rule IDs and score deltas into the actual replay JSON (not just the human-readable
+game log) is a materially bigger change than "include ... in Level 2 replay log output" implies, and
+routes through `ReplayNotationExporter`, which neither §12 nor the source spec's §11.4 mentions.
+
+#### 12.5.5 An existing, closer-fitting loader precedent goes unmentioned
+
+§11.3 of the source spec says only that "the `mamo-Connector` places the guidance configuration in
+Forge's deck/profile directory or launches Forge with the guidance payload" — vague about the actual
+mechanism. Forge already ships a working analog for exactly this shape of problem:
+`forge-ai/src/main/java/forge/ai/DeckRulesLoader.java` + `DeckRulesConfig` — a Gson-based loader
+(Gson is already a `forge-ai` dependency, confirmed in `forge-ai/pom.xml`; that part of the spec's
+assumption is correct) that reads a **`deck_rules` JSON block** — `mulligan`, `combos`, `dont_combos`
+— off a path recorded on the `Deck` object (`DecklistSpecPath`), attaches a parsed `DeckRulesConfig`
+to it, and is consulted at decision time. This is the same `deck_rules` envelope §1/§4 of this guide
+already documents for the `mtg-commander-decklist` JSON's `simulation` block. An `ai_guidance` key
+sitting next to `mulligan`/`combos` in that same envelope, parsed by extending this loader, is a
+smaller and more consistent change than the "deck/profile directory or launch payload" language
+suggests — worth raising with whoever picks up the handover, not a blocking contradiction.
+
+#### 12.5.6 Forced play sequence (real, existing) and "tactical sequences" (proposed) are being conflated
+
+`ai-play-guidance-spec.md`'s own §11.1 table lists "Forced Play Sequences... Scenario script engine"
+as powering the proposed `tactical_sequences`/`bait_countermagic` mechanism (§6.2's `abort_if`
+stage-2 guard). §9.3/§9.4 of **this** guide already document the real mechanism accurately: it's a
+pure **exact-card-name short-circuit** — `chooseSpellAbilityToPlay()`'s forced-sequence block
+(`AiController.java:1443–1535`) checks the head of a lobby-name-keyed queue
+(`GameRules.getForcedPlaySequence()`), and once a matching castable card is found, returns it
+immediately, bypassing `canPlayAI`/target-ranking/evaluation entirely for that decision. There is no
+mid-sequence condition check in that code path at all — it either plays the next queued name or
+leaves it queued (soft enforcement) until it's playable or the turn ends. It cannot express "cast the
+enabler now, then **abort** stage 2 if the opponent now has ≥4 untapped blue mana" — that's a
+different capability (conditional, abortable, re-evaluated every priority) than "next name in a fixed
+list." Reusing the forced-sequence machinery for `tactical_sequences` as the source spec's table
+implies would mean adding conditional-abort logic on top of a mechanism whose own design doc
+(`plan-deckRulesAiIntegration.prompt.md`, root of this Forge fork — the actual plan this code was
+built from) deliberately scoped it to soft, retry-or-fall-through enforcement only, and left target
+forcing as an explicit, unbuilt "Phase 2." Treating `tactical_sequences` as a genuinely separate, new
+mechanism rather than an extension of forced-sequence is the safer reading, and should be called out
+as such wherever this handover is picked up.
+
+#### 12.5.7 What's left standing
+
+Not everything contradicts. Kept for balance: the `PredicateEvaluator` AST shape itself (`all_of` /
+`any_of` / `none_of` / leaf `field`/`op`/`value`) is implementable as ordinary Java with no core
+changes — it's a pure function of `(Player, Game, Card)`, and nothing about it requires touching
+`AiController`/`SpellAbilityAi` internals to exist as a standalone utility class. Gson as the JSON
+parser is already a real `forge-ai` dependency. `ComputerUtilCard.evaluateCreature()` (real method,
+`ComputerUtilCard.java:758`) is a real, single, poke-able baseline-value function a guidance modifier
+could plausibly wrap. The gap is specifically in *wiring* that evaluator into the four named
+interception points — none of the four are the low-risk overlay §12.1 describes; each either doesn't
+exist under that name, doesn't carry the data needed, or would require changing the exact heuristic
+baseline behavior this section promises to leave alone.
 

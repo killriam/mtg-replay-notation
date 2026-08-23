@@ -613,65 +613,62 @@ export type PredicateAST = AtomicPredicate | CompoundPredicate;
 
 ## 11. Forge Integration & Existing AI Capabilities
 
-The AI Guidance Specification is designed to integrate seamlessly into **Forge's AI Architecture** (as documented in `AI_DECISION_MAKING_CONCEPT.md`). Forge already provides a comprehensive rules execution engine and baseline heuristic decision system; the `ai_guidance` policy acts as an **overlay and scoring modifier** on top of these existing facilities.
+### 11.1 Forge AI Architectural Reality & Integration Grounding
 
-### 11.1 What Already Exists in Forge AI
+Forge's AI is an expert system based on deterministic heuristics, specialized ability handlers, and game-state evaluation utilities. Grounding `ai_guidance` in Forge requires aligning with its actual codebase realities:
 
-| Forge Subsystem | Existing Implementation & Responsibility | Guidance Integration Point |
+| Subsystem | Real Forge Implementation | Guidance Grounding Point |
 | :--- | :--- | :--- |
-| **`AiController`** | Central coordinator managing the priority loop, phase flow, and candidate action selection (`chooseSpellAbilityToPlay`). | **Action Filter & Ranking:** Applies `play_preferences`, preference ladders, and phase timing defaults (`pre_combat_main` vs `post_combat_main`). |
-| **`SpellAbilityAi` Handlers** | ~100+ specialized ability handlers (`DestroyAi`, `DamageDealAi`, `DrawAi`, `ChangeZoneAi`, `CountersPutAi`, etc.) implementing `canPlayAI()` and `chooseTargetsAI()`. | **Target Ranking Override:** Replaces generic target heuristics with conditions and vetoes from `target_rankings`. |
-| **`ComputerUtilCard`** | Card evaluation utilities calculating baseline threat scores, creature values, and best/worst permanent sorting. | **Formation Scoring:** Modifies baseline card value with Formation Graph disruption values ($\Delta\text{Formation}$) and role weights (`engine_core`, `multiplier`). |
-| **`ComputerUtilCombat`** | Simulates combat math, trade ratios, evasion keywords, and alpha-strike lethal checks in `AiAttackController` & `AiBlockController`. | **Combat Directives:** Tuned via `AggressionLevel` and `TradeThreshold` adjustments derived from `evaluation_profile`. |
-| **`ComputerUtilMana`** | Mana source classification (basics $\to$ duals $\to$ rocks $\to$ dorks $\to$ dynamic yield $\to$ sacrifice/treasures) and auto-payment sequencing. | **Resource Constraints:** Informs role deployment rules (e.g., reserving mana for `protection` roles). |
-| **Forced Play Sequences** | Scenario script engine that plays predetermined card sequences when resources allow. | **Tactical Sequence Engine:** Powers high-level scripted baiting sequences (`bait_countermagic`) and curve ladders. |
-| **AI Profiles (`.ai`)** | Property configurations (`AggressionLevel`, `TradeThreshold`, `LifeDangerThreshold`, `MulliganModel`, `SimulationDepth`). | **Dynamic Profile Adapter:** Maps early/mid/late game weights from `evaluation_profile` directly to Forge profile variables at runtime. |
-| **`AiDecisionLogger`** | Exports candidate options, evaluated alternatives, and chosen rationale to MTG Replay Notation JSON (`events` and `views_l2`). | **Coaching Pipeline:** Emits the exact guidance rule IDs and $\Delta\mathbf{V}$ evaluation breakdown into replay files for frontend review. |
+| **`AiController`** | Central priority coordinator. Real entry point is `chooseSpellAbilityToPlay()`. Sorts candidates using `Comparator<SpellAbility>` and `AiAbilityDecision` records. | **Deployment Guard Filter:** In `chooseSpellAbilityToPlay()`, evaluates role `deployment_guard` predicates before candidate sorting (e.g., vetoes naked *Doubling Season* when active enablers $< 1$). |
+| **Target Evaluation (`ComputerUtilCard`)** | Target selection is distributed across ~100 heterogeneous `SpellAbilityAi` handlers (`DestroyAi`, `DamageDealAi`, `ChangeZoneAi`), but they centrally call `ComputerUtilCard.evaluateCreature()` and `evaluatePermanent()`. | **Threat Priority & Vetoes:** Decorates `ComputerUtilCard.evaluateCreature()` and `evaluatePermanent()` with `target_rankings` bonuses (`+100` Tier 1 Combo, `+70` Tier 2 Engine Hub) and hard vetoes (Indestructible/Hexproof). Propagates automatically across all 100+ handlers. |
+| **Deck Rules Loader (`DeckRulesLoader`)** | Existing system that uses Google Gson to parse sibling `deck_rules` JSON configurations alongside `.dck` decks. | **Policy Deserialization:** Ingests `deck_rules.ai_guidance` directly into `AiGuidanceProfile` via Gson without ad-hoc file parsing. |
+| **Forced Play Sequences** | Built-in short-circuit at top of `chooseSpellAbilityToPlay()` that matches card names sequentially (from `plan-deckRulesAiIntegration.prompt.md`). | **Tactical Sequence Engine:** Extends name-match short-circuit by checking `PredicateEvaluator.evaluate(sequence.abort_if)` before executing forced steps. |
+| **Decision Logging (`AiDecisionLogger`)** | Currently emits enum-tagged plain strings (`AiDecisionType`) to the game log. | **Coaching Exporter:** Adds structured JSON logging hook into `AiDecisionLogger` to record evaluated candidates and $\Delta\mathbf{V}$ for Replay Coach. |
 
-### 11.2 Forge Execution Flow with Guidance Overlay
+---
+
+### 11.2 Forge Execution Flow with Real Grounded Hooks
 
 ```mermaid
 sequenceDiagram
     participant Engine as Forge PhaseHandler
     participant PCAi as PlayerControllerAi
     participant AiCtrl as AiController
-    participant Guidance as ai_guidance Policy
-    participant AbilityAi as SpellAbilityAi
-    participant TargetHook as TargetRankingEngine
+    participant Guidance as DeckRulesLoader / GuidanceProfile
+    participant UtilCard as ComputerUtilCard
+    participant Handler as SpellAbilityAi Handlers (~100)
 
     Engine->>PCAi: chooseSpellAbilityToPlay()
-    PCAi->>AiCtrl: getSpellAbilitiesToPlay()
-    
-    AiCtrl->>Guidance: Check Active Phase & Timing Defaults
-    AiCtrl->>Guidance: Check Role Deployment Constraints (e.g., Multiplier without Core?)
-    
-    loop For each legal candidate SpellAbility
-        AiCtrl->>AbilityAi: canPlayAI(AiController, sa)
-        AbilityAi->>TargetHook: evaluateTargets(sa, legalTargets)
-        TargetHook->>Guidance: Apply target_rankings (Priority Ladder + Vetoes)
-        TargetHook-->>AbilityAi: Ranked Target List & Disruption Score
-        AbilityAi-->>AiCtrl: boolean (true/false) + chosen targets
+    PCAi->>AiCtrl: chooseSpellAbilityToPlay()
+
+    alt Forced Sequence Active with abort_if Check
+        AiCtrl->>Guidance: Check next forced card & evaluate abort_if
+        alt Preconditions met & not aborted
+            AiCtrl-->>PCAi: Return forced SpellAbility
+        end
     end
 
-    AiCtrl->>Guidance: Apply play_preferences & preference_ladders
-    AiCtrl->>AiCtrl: Calculate Final Score = w_deck · ΔV + TargetScore + PreferenceBonus
-    AiCtrl-->>PCAi: Return highest-scoring SpellAbility
+    AiCtrl->>Guidance: Check Role Deployment Guards (e.g., Multiplier without Core?)
+    
+    loop For each legal candidate SpellAbility
+        AiCtrl->>Handler: canPlayAI(AiController, sa)
+        Handler->>UtilCard: evaluateCreature() / evaluatePermanent()
+        UtilCard->>Guidance: Apply target_rankings (Tier score bonus & Hard Vetoes)
+        UtilCard-->>Handler: Threat score with Guidance modifier
+        Handler-->>AiCtrl: boolean canPlay + chosen targets
+    end
+
+    AiCtrl->>AiCtrl: Sort candidates via Comparator (adjusted by role timing)
+    AiCtrl-->>PCAi: Return highest priority SpellAbility (or null to pass)
     PCAi-->>Engine: Execute selected action
 ```
 
-### 11.3 Connector & Delivery Pipeline
+---
 
-As detailed in the [Forge Integration Guide](./forge-integration-guide.md):
-1. The **MaMo Frontend** bundles the decklist `.dck` and the accompanying `ai_guidance` JSON object.
-2. The **`mamo-Connector`** places the guidance configuration in Forge's deck/profile directory or launches Forge with the guidance payload.
-3. Forge's `AiController` loads the `ai_guidance` configuration, establishing the dynamic scoring overrides and rule hooks for the match.
-
-### 11.4 Forge AI Java Implementation Reference (Drop-in Architecture)
-
-The Java integration in `forge-ai` uses four modular classes:
+### 11.3 Forge AI Java Implementation Reference (Grounded Drop-in Architecture)
 
 #### 1. `forge.ai.guidance.PredicateEvaluator`
-Evaluates the JSON Predicate AST against the current `Player` and `Game` state in $O(1)$:
+Evaluates the JSON Predicate AST against the current `Player` and `Game` state in $O(1)$ using Gson:
 ```java
 package forge.ai.guidance;
 
@@ -684,29 +681,27 @@ import com.google.gson.JsonElement;
 
 public class PredicateEvaluator {
     public static boolean evaluate(JsonObject ast, Player aiPlayer, Game game, Card targetCard) {
+        if (ast == null || ast.isJsonNull()) return true;
         if (ast.has("all_of")) {
-            JsonArray arr = ast.getAsJsonArray("all_of");
-            for (JsonElement el : arr) {
+            for (JsonElement el : ast.getAsJsonArray("all_of")) {
                 if (!evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return false;
             }
             return true;
         }
         if (ast.has("any_of")) {
-            JsonArray arr = ast.getAsJsonArray("any_of");
-            for (JsonElement el : arr) {
+            for (JsonElement el : ast.getAsJsonArray("any_of")) {
                 if (evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return true;
             }
             return false;
         }
         if (ast.has("none_of")) {
-            JsonArray arr = ast.getAsJsonArray("none_of");
-            for (JsonElement el : arr) {
+            for (JsonElement el : ast.getAsJsonArray("none_of")) {
                 if (evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return false;
             }
             return true;
         }
         
-        // Leaf evaluation
+        if (!ast.has("field") || !ast.has("op")) return true;
         String field = ast.get("field").getAsString();
         String op = ast.get("op").getAsString();
         JsonElement val = ast.get("value");
@@ -716,14 +711,16 @@ public class PredicateEvaluator {
     private static boolean evaluateLeaf(String field, String op, JsonElement val, Player aiPlayer, Game game, Card target) {
         switch (field) {
             case "opponent_open_mana":
-                int openMana = countOpponentOpenMana(aiPlayer, game);
-                return compareInt(openMana, op, val.getAsInt());
-            case "opponent_mana_colors":
-                return opponentHasManaColor(aiPlayer, game, val.getAsString());
-            case "target.canonical_threat_tier":
-                return target != null && target.hasKeyword(val.getAsString());
+                int maxUntapped = 0;
+                for (Player opp : aiPlayer.getOpponents()) {
+                    int lands = opp.getCardsIn(forge.game.zone.ZoneType.Battlefield).filter(c -> c.isLand() && c.isUntapped()).size();
+                    if (lands > maxUntapped) maxUntapped = lands;
+                }
+                return compareInt(maxUntapped, op, val.getAsInt());
             case "target.has_indestructible":
                 return target != null && (target.hasKeyword("Indestructible") || target.hasKeyword("Hexproof"));
+            case "target.canonical_threat_tier":
+                return target != null && target.hasKeyword(val.getAsString());
             default:
                 return true;
         }
@@ -740,30 +737,13 @@ public class PredicateEvaluator {
             default: return false;
         }
     }
-
-    private static int countOpponentOpenMana(Player aiPlayer, Game game) {
-        int max = 0;
-        for (Player opp : aiPlayer.getOpponents()) {
-            int untapped = opp.getCardsIn(forge.game.zone.ZoneType.Battlefield).filter(c -> c.isLand() && c.isUntapped()).size();
-            if (untapped > max) max = untapped;
-        }
-        return max;
-    }
-
-    private static boolean opponentHasManaColor(Player aiPlayer, Game game, String color) {
-        for (Player opp : aiPlayer.getOpponents()) {
-            for (Card c : opp.getCardsIn(forge.game.zone.ZoneType.Battlefield)) {
-                if (c.isLand() && c.isUntapped() && c.getManaColors().contains(color)) return true;
-            }
-        }
-        return false;
-    }
 }
 ```
 
-#### 2. Deployment Guard Hook (`AiController.getSpellAbilitiesToPlay()`)
+#### 2. Deployment Guard Hook (`AiController.chooseSpellAbilityToPlay()`)
+Inserted before candidate sorting in `AiController.chooseSpellAbilityToPlay()`:
 ```java
-// Check role deployment guard before adding candidate ability to evaluated list
+// Early deployment guard check
 Card sourceCard = sa.getHostCard();
 if (sourceCard != null && guidanceProfile != null) {
     CardRoleBinding binding = guidanceProfile.getRoleBinding(sourceCard.getName());
@@ -775,36 +755,42 @@ if (sourceCard != null && guidanceProfile != null) {
             null
         );
         if (!guardPassed) {
-            // Guard failed — veto candidate for this priority point (e.g. Doubling Season without enabler)
+            // Guard failed — veto candidate for this priority loop (e.g. Doubling Season without enablers)
             continue; 
         }
     }
 }
 ```
 
-#### 3. Target Scoring & Hard Veto Hook (`SpellAbilityAi.chooseTargetsAI()`)
+#### 3. Centralized Target Threat Scoring Hook (`ComputerUtilCard.evaluateCreature()`)
 ```java
-// Apply target_rankings ladder & hard vetoes
+// Centralized threat score modifier in ComputerUtilCard.evaluateCreature() / evaluatePermanent()
+int score = calculateDefaultCreatureValue(c);
 if (guidanceProfile != null) {
-    TargetRankingRule rule = guidanceProfile.findTargetRule(sa.getHostCard());
-    if (rule != null) {
-        // 1. Check Hard Vetoes
-        for (TargetVeto veto : rule.getVetoes()) {
-            if (PredicateEvaluator.evaluate(veto.getCondition(), aiPlayer, game, candidateTargetCard)) {
-                candidateTargets.remove(candidateTargetCard); // VETO: skip indestructible/invalid target
-                break;
-            }
-        }
-        // 2. Apply Score Bonus
-        for (TargetLadderStep step : rule.getLadder()) {
-            if (PredicateEvaluator.evaluate(step.getCondition(), aiPlayer, game, candidateTargetCard)) {
-                candidateScore += step.getScore(); // +100 Combo, +70 Engine Hub
-                break;
-            }
-        }
+    // 1. Check Hard Vetoes
+    if (guidanceProfile.isVetoedTarget(c, aiPlayer)) {
+        return -9999; // Veto invalid/indestructible targets
     }
+    // 2. Add Canonical Threat Tier bonus
+    score += guidanceProfile.getThreatScoreBonus(c); // +100 Combo, +70 Engine Hub
 }
+return score;
 ```
+
+---
+
+### 11.4 Architectural Reality Audit (What Holds Up vs What Was Corrected)
+
+| Component | Initial Assumption | Actual Codebase Reality | Architectural Resolution |
+| :--- | :--- | :--- | :--- |
+| **Hook Entry Point** | Assumed `getSpellAbilitiesToPlay()` | Entry point is `chooseSpellAbilityToPlay()`. | Patched at start of `chooseSpellAbilityToPlay()`. |
+| **Target Ranking Hook** | Assumed unified `SpellAbilityAi.chooseTargetsAI()` | Target logic is distributed across ~100 classes. | Hook placed in **`ComputerUtilCard.evaluateCreature()` / `evaluatePermanent()`**, which all ~100 handlers call. |
+| **Scoring Model** | Assumed global additive score accumulator | Real AI uses `Comparator` sort & `AiAbilityDecision`. | Guard vetoes filter candidates early; threat modifiers in `ComputerUtilCard` alter sorting order naturally. |
+| **Configuration Ingestion** | Assumed ad-hoc file writing | `DeckRulesLoader` already loads sibling JSON via Gson. | Ingested cleanly through `DeckRulesLoader`. |
+| **Forced Sequences** | Assumed complex `abort_if` existed | Real forced sequence is pure card-name match. | Wrapped with `PredicateEvaluator.evaluate(abort_if)` before honoring sequence. |
+| **Decision Logging** | Assumed structured L2 JSON existed | `AiDecisionLogger` outputs enum-tagged strings. | Structured JSON exporter added as an extension to `AiDecisionLogger`. |
+
+---
 
 ---
 
