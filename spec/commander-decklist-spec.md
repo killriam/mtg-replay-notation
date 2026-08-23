@@ -571,6 +571,16 @@ Group references allow `look_for` scenarios to describe patterns independent of 
 specific card drawn, and allow `forced` scenarios to say "resolve this group slot to
 the first matching card in the deck list".
 
+#### 6.4.1c Scenario Category
+
+Scenarios are classified into three functional categories to prevent goldfishing / showcase scenarios from corrupting AI guidance evaluation:
+
+| `category` | Included Types | Purpose & Lifecycle Role |
+| :--- | :--- | :--- |
+| `"aspirational"` | `best_starting_hand`, `perfect_game` | Showcase dream openings and goldfishing ceilings (0 opponent interaction). **Excluded from AI guidance policy calibration.** |
+| `"tactical_benchmark"` | `decision_puzzle`, `threat_triage`, `eval_sequence`, `mid_game` | Deterministic unit-test fixtures with `decision_question` and `evaluation_criteria` used to verify AI guidance and policy rules. |
+| `"replay_snapshot"` | `blunder_snapshot`, `critical_turn`, `free_build` | Game-state fixtures extracted directly from match replays for regression testing and blunder review. |
+
 #### 6.4.2 Hand-Based Scenario Format
 
 Used for `best_starting_hand` and `perfect_game` types. Documents which cards were in

@@ -1060,3 +1060,106 @@ Scenarios serve **two clearly separated purposes**:
 | Canonical Threat Catalog | **Preserved** | Feeds archetype matching directly |
 | "Save blunder as scenario" | **Preserved** | Now feeds Observation Engine corpus |
 | Closed-loop single Forge verification | **Replaced** | Replaced by aggregate corpus metric across multiple games |
+
+---
+
+## 15. Verification & Validation (V&V) Strategy
+
+To ensure both technical correctness and authentic strategic quality, the verification and validation framework distinguishes between verifying the code and validating the player experience.
+
+```mermaid
+flowchart TD
+    subgraph V_Verification ["VERIFICATION (Technical Correctness)"]
+        V1["Tier 1: Static & Schema Verification\n(TypeScript types, JSON schemas, Java AST Unit Tests)"]
+        V2["Tier 2: Scenario Benchmark Unit Tests\n(Deterministic pass/fail on 7 Universal + Deck Puzzles)"]
+        V3["Tier 3: Replay Notation Ingestion Tests\n(L2 event structure, ΔV math accuracy)"]
+    end
+
+    subgraph V_Validation ["VALIDATION (Strategic Quality & Experience)"]
+        Val1["Tier 4: A/B Headless Batch Simulation\n(Guided AI vs Unguided Baseline Forge AI over 100 games)"]
+        Val2["Tier 5: Pedagogical Coaching Fidelity\n(Blunder detection accuracy & explanation clarity)"]
+        Val3["Tier 6: Player Experience & Ergonomics\n(5-minute policy review, zero cognitive fatigue)"]
+    end
+
+    V_Verification --> V_Validation
+```
+
+### 15.1 Technical Verification Strategy (Deterministic & Fast)
+
+#### Tier 1: Static & Contract Verification (Pre-commit / CI)
+* **Schema Contract Tests:**
+  * Validate exported `.policy.json` against `ai_guidance.schema.json`.
+  * Validate scenario files against updated `commander-decklist-spec.md` (`category` tags: `aspirational`, `tactical_benchmark`, `replay_snapshot`).
+* **Language & Type Checks:**
+  * `npm run type-check:src` in `MaMoFrontend` and `@killriam/mamo-types`.
+  * `mvn test` in `forge-ai` verifying the Java `PredicateEvaluator` on all AST operators (`all_of`, `any_of`, `none_of`, `field`, `op`, `value`) with 100% branch coverage.
+* **Performance Benchmarks:**
+  * $O(1)$ AST execution: Java predicate evaluator must evaluate $\ge 50,000$ conditions/sec without GC pressure.
+
+#### Tier 2: Benchmark Regression Suite (Automated Unit Tests)
+Every guidance policy must pass the **Universal Benchmark Scenarios** before it can be exported:
+
+| Benchmark Scenario | Injected Condition | Pass / Fail Criterion |
+| :--- | :--- | :--- |
+| **`UNI_MULTIPLIER_NO_ENABLER`** | *Doubling Season* in hand, empty board, 5 mana. | **PASS** if AI casts ramp/passes; **FAIL** if AI casts Doubling Season. |
+| **`UNI_THREAT_TRIAGE`** | *Swords to Plowshares* in hand; Opponent has *Korvold* (Tier 2) and *Ghalta* 12/12 (Tier 4). | **PASS** if AI targets *Korvold*; **FAIL** if AI targets *Ghalta*. |
+| **`UNI_VETO_INDESTRUCTIBLE`** | *Murder* in hand; Opponent has *Avacyn* (Indestructible) and *Sun Titan*. | **PASS** if AI targets *Sun Titan*; **FAIL** if AI targets *Avacyn* (Veto breach). |
+| **`UNI_PHASE_TIMING`** | *Sylvan Library* (Draw) and *Swiftfoot Boots* (Haste) in hand. | **PASS** if *Boots* played in `MAIN1` and *Library* played in `MAIN2`. |
+
+*Execution:* Headless Java runner executes the entire 7-scenario suite in **$< 500\text{ ms}$**.
+
+---
+
+### 15.2 Strategic Validation Strategy (Empirical & Experiential)
+
+#### Tier 3: A/B Headless Batch Simulation (Guided vs. Baseline)
+To validate that AI guidance actually improves decision-making, an automated A/B test runs in Forge across 100 simulated Commander games per deck:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ A/B Test Configuration: 100 Headless Games per Archetype    │
+│   Deck A: Unguided Baseline Forge AI (Default heuristics)   │
+│   Deck B: Guided Forge AI (.policy.json active)             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Validation Metrics:**
+1. **Blunder Rate Reduction ($\text{Target} > 80\%$ reduction):**
+   - Count of unforced multiplier losses (e.g. Doubling Season destroyed with 0 output).
+   - Count of removal spells cast into Indestructible / Hexproof.
+2. **Engine Formation Velocity ($\Delta T_{\text{online}}$):**
+   - Average turn number where the deck's core formation (Core + Enabler) is established.
+3. **Mana Efficiency & Floating Waste:**
+   - Unspent mana when interaction was needed vs held open successfully.
+
+#### Tier 4: Pedagogical Coaching Validation (Review Soundness)
+Validates the **Replay Decision Coach** against a labeled corpus of historical match replays:
+
+* **Classification Accuracy:**
+  * Known optimal lines must receive <span style="background:#dcfce7;color:#15803d;padding:1px 6px;border-radius:4px;font-weight:bold">★ OPTIMAL</span> or <span style="background:#e0f2fe;color:#0369a1;padding:1px 6px;border-radius:4px;font-weight:bold">✔ SOUND</span>.
+  * Intentional blunders (seeded in test replays) must trigger <span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:4px;font-weight:bold">✖ BLUNDER</span> with the exact matched guard reason.
+* **Explanation Clarity Test:**
+  * Explanations must be generated using semantic card roles and threat tiers (*"Targeted Engine Hub Korvold"* rather than cryptic mathematical formulas).
+
+#### Tier 5: Player Experience & Ergonomics Validation
+In line with the **Philosophy Preamble** (*helpful and enjoyable, not pitch-perfect*):
+
+1. **The "5-Minute Review" Test:**
+   - Can a player open the AI Guidance tab, inspect auto-derived policies, review confidence badges, and approve/adjust them in under **5 minutes**?
+2. **The "One-Click Fix" Test:**
+   - When reviewing a misplay in a game log, does clicking *"Save as Tactical Benchmark"* immediately create a runnable puzzle in the Playbook without manual copy-pasting?
+3. **No Intrusive False Positives:**
+   - The coach must not nag the player on minor stylistic differences if both lines had positive $\Delta \mathbf{V}$.
+
+---
+
+### 15.3 Summary of V&V Quality Gates
+
+| Stage | What We Test | How We Test | Pass Threshold |
+| :--- | :--- | :--- | :--- |
+| **CI / Build** | Schema & Java AST Parser | Automated unit tests | 100% test pass, 0 lint errors |
+| **Policy Export** | Universal Benchmarks | Headless Forge Scenario runner | 7/7 Universal puzzles pass |
+| **Simulation** | Strategic Improvement | 100-game A/B batch simulation | $\ge 80\%$ blunder reduction vs baseline |
+| **Replay Review** | Coaching Feedback | Replay log ingestion | Accurate blunder tagging + clear text |
+| **Player UX** | Workflow Ergonomics | Playbook UI usability | Policy review completed in $< 5\text{ min}$ |
+
