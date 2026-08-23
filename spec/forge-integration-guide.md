@@ -913,3 +913,159 @@ switch that check to parsing the new filename (or the manifest's `Implementation
 already carries the same information and works today, before this proposal - see
 `BuildInfo.getVersionString()`/`BuildInfo.getGitCommit()` in `forge-core`, callable at runtime
 without needing to touch the filename at all).
+
+---
+
+## 12. Forge AI Team Handover: Play Guidance & Policy Integration
+
+**Target Audience:** Forge Java Core / AI Development Team  
+**Scope:** Adding declarative strategic policy overlay (`ai_guidance`) to Forge AI without breaking existing heuristic baselines.
+
+---
+
+### 12.1 Overview & Design Philosophy
+
+MaMo provides an authored / derived strategic policy (`deck.policy.json` or embedded `ai_guidance` in scenario JSON) to guide Forge AI in Commander matches. Rather than replacing Forge's existing rules engine or combat simulator (`ComputerUtilCombat`), the policy acts as a **declarative scoring and veto filter** at four specific priority interception points.
+
+---
+
+### 12.2 Handover Deliverables & Required Java Patches
+
+#### 1. New Package: `forge.ai.guidance`
+
+Create the following two classes in `forge-ai/src/main/java/forge/ai/guidance/`:
+
+##### `AiGuidanceProfile.java`
+Parses the incoming JSON policy and provides fast lookups:
+- `getRoleBinding(String cardName)` $\to$ `CardRoleBinding` (returns `tactical_role`, `deployment_guard`, `phase_timing`)
+- `findTargetRule(Card hostCard)` $\to$ `TargetRankingRule` (returns priority ladder steps and hard vetoes)
+- `getPreferenceBonus(SpellAbility sa)` $\to$ integer score modifier
+
+##### `PredicateEvaluator.java`
+Zero-dependency recursive AST evaluator ($O(1)$) supporting:
+- Logical combinators: `all_of`, `any_of`, `none_of`
+- Leaf comparisons: `==`, `!=`, `>`, `>=`, `<`, `<=`
+- Dynamic game-state fields: `opponent_open_mana`, `opponent_mana_colors`, `turn_number`, `target.has_indestructible`, `target.canonical_threat_tier`
+
+```java
+package forge.ai.guidance;
+
+import forge.game.Game;
+import forge.game.player.Player;
+import forge.game.card.Card;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+
+public class PredicateEvaluator {
+    public static boolean evaluate(JsonObject ast, Player aiPlayer, Game game, Card targetCard) {
+        if (ast == null || ast.isJsonNull()) return true;
+        if (ast.has("all_of")) {
+            for (JsonElement el : ast.getAsJsonArray("all_of")) {
+                if (!evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return false;
+            }
+            return true;
+        }
+        if (ast.has("any_of")) {
+            for (JsonElement el : ast.getAsJsonArray("any_of")) {
+                if (evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return true;
+            }
+            return false;
+        }
+        if (ast.has("none_of")) {
+            for (JsonElement el : ast.getAsJsonArray("none_of")) {
+                if (evaluate(el.getAsJsonObject(), aiPlayer, game, targetCard)) return false;
+            }
+            return true;
+        }
+        
+        if (!ast.has("field") || !ast.has("op")) return true;
+        String field = ast.get("field").getAsString();
+        String op = ast.get("op").getAsString();
+        JsonElement val = ast.get("value");
+        return evaluateLeaf(field, op, val, aiPlayer, game, targetCard);
+    }
+
+    private static boolean evaluateLeaf(String field, String op, JsonElement val, Player aiPlayer, Game game, Card target) {
+        switch (field) {
+            case "opponent_open_mana":
+                int maxUntapped = 0;
+                for (Player opp : aiPlayer.getOpponents()) {
+                    int lands = opp.getCardsIn(forge.game.zone.ZoneType.Battlefield).filter(c -> c.isLand() && c.isUntapped()).size();
+                    if (lands > maxUntapped) maxUntapped = lands;
+                }
+                return compareInt(maxUntapped, op, val.getAsInt());
+            case "target.has_indestructible":
+                return target != null && (target.hasKeyword("Indestructible") || target.hasKeyword("Hexproof"));
+            case "target.canonical_threat_tier":
+                return target != null && target.hasKeyword(val.getAsString());
+            default:
+                return true;
+        }
+    }
+    
+    private static boolean compareInt(int a, String op, int b) {
+        switch (op) {
+            case "==": return a == b;
+            case "!=": return a != b;
+            case ">":  return a > b;
+            case ">=": return a >= b;
+            case "<":  return a < b;
+            case "<=": return a <= b;
+            default: return false;
+        }
+    }
+}
+```
+
+---
+
+#### 2. Interception Points in Existing Forge Code
+
+| File to Modify | Target Method | Insertion Logic |
+| :--- | :--- | :--- |
+| **`forge.ai.AiController`** | `getSpellAbilitiesToPlay()` | Check `CardRoleBinding.getDeploymentGuard()`. If `PredicateEvaluator.evaluate()` is `false`, skip adding the `SpellAbility` to candidates (prevents naked Multiplier drops). |
+| **`forge.ai.AiController`** | `chooseSpellAbilityToPlay()` | Enforce phase timing preferences (`pre_combat_main` vs `post_combat_main`) before final selection. |
+| **`forge.ai.SpellAbilityAi`** | `chooseTargetsAI()` | Before executing default target ranking: (1) apply `target_rankings` hard vetoes to filter out indestructible/invalid permanents, (2) apply `target_rankings` score ladder bonuses (`+100` combo, `+70` engine hub). |
+| **`forge.ai.logging.AiDecisionLogger`** | `logDecision()` | Include candidate options, evaluated guidance rules, and delta scores in Level 2 replay log output. |
+
+---
+
+### 12.3 Inbound Payload Format
+
+When a scenario is launched from MaMo, Forge will find the policy bundled inside `scenario.json` under `ai_guidance` or as a companion `<deck_name>.policy.json`:
+
+```json
+{
+  "deck_id": "Ghave_Guru_of_Spores",
+  "tactical_roles": {
+    "Doubling Season": {
+      "role": "multiplier",
+      "deployment_guard": {
+        "all_of": [
+          { "field": "active_engine_core_count", "op": ">=", "value": 1 }
+        ]
+      }
+    }
+  },
+  "target_rankings": [
+    {
+      "source_card": "Swords to Plowshares",
+      "vetoes": [
+        { "condition": { "field": "target.has_indestructible", "op": "==", "value": true }, "reason": "indestructible" }
+      ],
+      "ladder": [
+        { "condition": { "field": "target.canonical_threat_tier", "op": "==", "value": "Tier1_Combo" }, "score": 100 },
+        { "condition": { "field": "target.canonical_threat_tier", "op": "==", "value": "Tier2_EngineHub" }, "score": 70 }
+      ]
+    }
+  ]
+}
+```
+
+---
+
+### 12.4 Backward Compatibility Guarantee
+
+If no `ai_guidance` profile is present (or `guidanceProfile == null`), all four hooks **no-op immediately**, preserving Forge's default vanilla AI behavior with zero performance regression.
+
