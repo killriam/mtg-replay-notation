@@ -1607,6 +1607,144 @@ reason, which is the point of writing the assertion before checking the fixture 
 - **`evaluation_profile`/Canonical Threat Catalog ΔV breakdown.** This slice logs *which* rule
   fired, not a full ΔV vector across the 10 evaluation dimensions — still blocked on
   `evaluation_profile` itself being unbuilt (§12.6.3, unchanged).
-- **`tactical_sequences`/`abort_if`.** Still unchanged from §12.6.3/§12.7.3 — needs the
-  `GameRules.forcedPlaySequence` schema change, unrelated to logging.
+- **`tactical_sequences`/`abort_if`.** Shipped separately — see §12.9, which also supersedes
+  §12.6.3/§12.7.3's "needs a `GameRules.forcedPlaySequence` schema change" framing with a safer
+  design that doesn't touch that mechanism at all.
+
+---
+
+### 12.9 Slice 4 Shipped: Tactical Sequences (`abort_if`, Scripted Baiting Lines)
+
+**Status: implemented, tested, and passing on `killriam/forge` `replay-Features` as of
+2026-08-24 — 7 new tests green (including one real bug the tests caught before it shipped, see
+§12.9.4), 73/73 in a combined Slices-1-through-4-plus-regression pass, zero failures.** Closes the
+last item on §12.6.3's original deferred list: `play_preferences.tactical_sequences[]` — scripted,
+abortable, multi-priority tactical lines like "bait with the enabler, then commit the engine core
+unless the coast isn't clear" (ai-play-guidance-spec.md §6.2).
+
+#### 12.9.1 The design decision that mattered most: a new mechanism, not an extension
+
+§12.5.6 and §12.6.1 already found that reusing `GameRules.forcedPlaySequence` for this would be
+wrong in kind, not just effort: that mechanism is a real, shipped, exact-card-name short-circuit
+with **no** mid-sequence condition checking, and its own design doc
+(`plan-deckRulesAiIntegration.prompt.md`) deliberately scoped it to soft retry-or-fall-through
+enforcement — plus this project's own commit history (`23d3ad338ff`, `d0db4813d06`, `e0d0e75608a`,
+`e582ee4777d`) shows it needed several follow-up fixes after first shipping, for exactly the kind
+of subtle sequencing edge cases `abort_if` would add more of. Extending it risked reintroducing
+bugs that mechanism's own soft-enforcement design was built to avoid.
+
+This slice instead builds `tactical_sequences` as a **fully independent, additive mechanism** —
+zero changes to `GameRules`, `forcedPlaySequence`, or any of the code paths that consume it
+(`SimulateMatch`, `CSubmenuScenario`, the CLI `-r`/`-s` replay flags). New files only, plus the
+same kind of small, targeted hook `chooseSpellAbilityToPlayFromList()` already carries for
+Slices 1 and 3.
+
+#### 12.9.2 What actually shipped
+
+New in `forge-ai/src/main/java/forge/ai/guidance/`:
+- **`TacticalSequence.java`** — one `play_preferences.tactical_sequences[]` entry: `id`,
+  `trigger` (predicate), an ordered list of `Stage` (`target_role`, optional `abort_if`, optional
+  `fallback`), `reason`. Stages are named `stage_1`, `stage_2`, ... in the source JSON (matching
+  ai-play-guidance-spec.md §6.2's own worked example, not a JSON array) — `AiGuidanceProfile`
+  scans sequentially and stops at the first gap, supporting any number of stages even though the
+  spec's only worked example shows two.
+- **`TacticalSequenceTracker.java`** — the actual runtime state machine, one instance per
+  `AiController` (added as a new field, mirroring how that class already holds `comboTracker`
+  alongside the immutable `guidanceProfile`). Deliberately a *separate* class from
+  `AiGuidanceProfile` rather than folded in: `ComboTracker`'s own existing pattern in this codebase
+  is "recompute the answer fresh from game state on every query," which fits a sequence's `trigger`
+  check but not persisted stage progress across multiple priority windows — different enough to
+  warrant its own class rather than stretching `AiGuidanceProfile`'s "immutable parsed policy"
+  contract. Two methods:
+  - `desiredRoleFor(profile, ai, game)` — called once per priority window (not per candidate).
+    Activates a sequence if no sequence is active and some `trigger` now evaluates true;
+    re-checks the active stage's `abort_if` **every call** (not just once) — matching
+    ai-play-guidance-spec.md §6.2's "abortable priority states" framing exactly, since a sequence
+    that looked safe last turn can stop being safe by the time its next stage would fire. Returns
+    the currently-desired `target_role`, or `null` if nothing is active/relevant.
+  - `onCardCast(cardName, profile, ai, game)` — advances to the next stage (or completes and
+    deactivates, if that was the last one) when the cast card's declared role matches the active
+    stage's `target_role`. A no-op for any other cast — most casts have nothing to do with an
+    in-flight sequence.
+
+Hook, in `AiController.chooseSpellAbilityToPlayFromList()` (the same method Slice 1's deployment
+guard already patches): computed once per call, **before** the per-candidate loop —
+
+```java
+String desiredTacticalRole = null;
+if (guidanceProfile != null) {
+    String wantedRole = tacticalSequenceTracker.desiredRoleFor(guidanceProfile, player, game);
+    if (wantedRole != null) {
+        for (SpellAbility check : all) {
+            if (check.getHostCard() != null && guidanceProfile.cardHasRole(check.getHostCard().getName(), wantedRole)) {
+                desiredTacticalRole = wantedRole;
+                break;
+            }
+        }
+    }
+}
+```
+
+— then, inside the loop, every candidate whose card doesn't carry `desiredTacticalRole` is
+skipped. The pre-scan (does *any* actual candidate this priority carry the desired role at all) is
+what keeps this soft: if the desired card isn't even present among this priority's real
+candidates — not drawn yet, already spent, whatever — `desiredTacticalRole` stays `null` and every
+candidate is evaluated exactly as before. The sequence never stalls the AI waiting on a card that
+isn't there.
+
+Progress advancement is event-driven, not polled: `AiController` subscribes itself
+(`game.subscribeToEvents(this)`, only when the loaded profile actually declares
+`tactical_sequences[]` — most AI players in most games have none, and there's no reason to pay
+event-dispatch cost for every cast in the game otherwise) and reacts to the real
+`GameEventSpellAbilityCast` the engine already fires for every cast, calling
+`tacticalSequenceTracker.onCardCast(...)` whenever its own player casts something. `TacticalSequence`
+reuses Slice 3's `GameEventAiGuidanceDecision` for all four of its own new `decisionType` values
+(`tactical_sequence_started`/`_aborted`/`_stage_advanced`/`_completed`) — no new event type needed,
+the existing one's fields (nullable `cardName`, `ruleId` for the sequence id, `reason` for
+free text) already covered it.
+
+#### 12.9.3 What's still not covered
+
+- **`{sum_cmc}`-style dynamic value placeholders** and fields like `hand.has_roles_all`
+  (ai-play-guidance-spec.md §6.2's own `bait_countermagic_sequence` worked example uses both) —
+  not implemented in `PredicateEvaluator`. This slice's own test fixture deliberately uses only
+  already-supported fields (`battlefield.creatures.count`, `opponent_open_mana`) rather than
+  extending `PredicateEvaluator` further; a real `tactical_sequences` policy using the spec's own
+  worked example as-is would need that extension first.
+- **Multiple simultaneously-active sequences.** `TacticalSequenceTracker` tracks exactly one
+  active sequence at a time (a `TacticalSequence` field, not a collection) — if two different
+  sequences' triggers fire in the same window, whichever the scan reaches first wins and the
+  other's trigger condition is simply re-checked (and likely still true) on the next call once the
+  first completes or aborts. Not a bug, but a real behavioral limit worth knowing about.
+- **Sequences that never resolve.** There's no timeout — a stage whose `target_role` never gets
+  cast (no matching card ever drawn, say) leaves the sequence active indefinitely, silently
+  starving every other candidate role that priority for the rest of the game unless `abort_if`
+  eventually fires. `abort_if` is the only exit path; a sequence with no `abort_if` on a stage
+  that never resolves has no way out. Worth a product decision (a stage-level "give up after N
+  turns," mirroring the forced-play-sequence mechanism's own turn-based give-up logic) before
+  this ships to real policies rather than test fixtures.
+
+#### 12.9.4 V&V: a real bug the tests caught before it shipped
+
+Six of the seven new tests (`TacticalSequenceTrackerTest`) call `desiredRoleFor`/`onCardCast`
+directly against a real `Player`/`Game` — the state-machine logic itself, deterministic, following
+the by-now-standard §12.7.4 pattern. The seventh, `realCastAdvancesTheControllersOwnTracker`,
+exercises the actual production wiring end to end differently than Slice 3's tests did: instead of
+manually firing an event, it really casts a card through `ComputerUtil.handlePlayingSpellAbility`
+(the same real engine path — real stack push, real mana payment, real `GameEventSpellAbilityCast`
+— `PlayerControllerAi.playChosenSpellAbility` itself uses for non-land plays) rather than driving
+the AI's own "should I cast this" decision layer, for the same reason §12.7.4 gives.
+
+That test failed on the first pass — not a test bug, a real one: `AiController
+.onGuidanceRelevantCast`'s player-identity check compared `this.player` (a real `Player`) against
+`event.si().getActivatingPlayer()`, which returns a `PlayerView` — a GUI-facing view type that can
+never `.equals()` a real `Player`, confirmed by reading `StackItemView.java`, not guessed at from
+the symptom. Both objects' `toString()` happened to print the same seat name ("p1"), which is
+exactly why a manually-constructed or eyeballed test could have missed this — the fix was to
+compare against `event.realSa().getActivatingPlayer()` instead, which is `Player`-typed. Left
+unfixed, this would have made the entire subscription silently inert in production: the handler
+would fire on every cast, immediately return via the always-false identity check, and no tactical
+sequence would ever advance past its first stage — with no error, no log line, and no symptom
+short of "the AI never seems to commit stage 2." Exactly the class of bug a deterministic,
+production-path-exercising test exists to catch before it reaches that state.
 
