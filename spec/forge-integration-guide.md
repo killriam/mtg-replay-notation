@@ -1919,3 +1919,100 @@ Five key architectural items from §12.10.5 have been reviewed, decided, and ali
 - **Decision:** **Retain single active sequence with declaration-order (FIFO) priority.**
 - **Rationale:** Commander gameplay naturally focuses on one coherent tactical plan (e.g. bait-and-commit or tutor-and-deploy) at a time. Declaration order in the guidance policy provides clear, deterministic priority arbitration. Speculative multi-sequence concurrency is omitted to avoid state thrashing and unnecessary state-machine complexity.
 
+---
+
+### 12.12 §12.11's Decisions, Implemented
+
+**Status: implemented, tested, and passing on `killriam/forge` `replay-Features` as of
+2026-08-24 — 13 new tests green, 87/87 in a combined full regression pass, zero failures,
+including one more real bug caught by the tests (§12.12.3).** Three of §12.11's five decisions
+needed real code; two already matched what was built.
+
+#### 12.12.1 Already matched — no code changed
+
+- **§12.11.3 (`{sum_cmc}` — literal values only):** this was already the only thing
+  `PredicateEvaluator` ever supported — §12.10.2 already documented the placeholder as
+  unimplemented. The decision confirms the existing behavior is the *intended* one, not a
+  temporary gap; nothing to change.
+- **§12.11.5 (single active sequence, FIFO):** `TacticalSequenceTracker` already tracks exactly
+  one `TacticalSequence` and scans `profile.getTacticalSequences()` in declaration order,
+  first-trigger-wins (§12.9.2). The decision confirms this as the intended design, not a
+  simplification to later replace; nothing to change.
+- **§12.11.2 (`StackItem` population → exporter backlog):** by design, no `ai_guidance` code
+  touches this — see §12.10.5/§12.11.2, unchanged.
+
+#### 12.12.2 §12.11.1 — the stage modifier overlay
+
+New: `forge-ai/src/main/java/forge/ai/guidance/EvaluationProfileStage.java` — one
+`evaluation_profile.stages.<name>` entry (`turnMin`, `turnMax`, `weights: Map<String, Double>`).
+`AiGuidanceProfile` parses `evaluation_profile.stages.*` and exposes `currentStage(Game)`
+(the matching stage's name, or `null` if none matches the current turn) and `stageWeightFor(Game,
+String dimension)` (`0.0` — a neutral, no-op factor — when there's no `evaluation_profile`, no
+stage matches, or the matched stage doesn't declare that dimension).
+
+Two concrete mechanisms realize the decision's three stated effects ("scales `target_rankings`
+ladder scores," "modifies priority weights," "biases tactical sequence trigger sensitivity") —
+deliberately two, not three, since the third turned out to be the same mechanism as the first once
+made concrete:
+
+- **Ladder score scaling (real):** `TargetRankingRule.LadderStep` gained an optional `dimension`
+  field (naming one of ai-play-guidance-spec.md §7.1's 10 evaluation dimensions). A step that
+  declares one gets its `score` scaled by `score * (1 + stageWeightFor(game, dimension))` before
+  comparison, in both `chooseGuidedRemovalTarget` and `chooseGuidedCounterTarget`. Opt-in per
+  step, not automatic for every ladder — a step with no `dimension` is stage-invariant.
+- **A new generic `state.game_stage` field, not an implicit multiplier, for "priority weights" and
+  "trigger sensitivity":** rather than inventing a second, *opaque* automatic-scaling mechanism for
+  deployment guards and tactical-sequence triggers — which are boolean predicates, not scored
+  ladders, so "scaling" one isn't well-defined the way scaling a ladder score is —
+  `PredicateEvaluator` gained `state.game_stage`, resolving to the current stage's name via
+  `AiGuidanceProfile.currentStage(Game)`. Any existing condition (a deployment guard, a tactical
+  sequence's `trigger`/`abort_if`, a target-ranking veto) can reference it directly:
+  `{"field": "state.game_stage", "op": "==", "value": "late"}`. This satisfies "biases trigger
+  sensitivity" honestly — the *author* decides how stage affects their own trigger, visible in the
+  policy itself, rather than the evaluator silently reweighting a condition's outcome in a way
+  nothing in the JSON reveals. Verified: `testStateGameStage` (`PredicateEvaluatorTest`).
+
+Verified end to end with exact numbers, not just "which candidate won":
+`EvaluationProfileStageScalingTest` fires the real `chooseGuidedRemovalTarget` path (via
+`ComputerUtilCard.getBestRemovalTargetAI`, attached to a real `AiController` the same way every
+other slice's tests do) at three turns against a fixture with `early` weight `-0.5` and `late`
+weight `1.0` on a `+100` ladder step, and reads the exact scaled score off the fired
+`GameEventAiGuidanceDecision`'s `scoreDelta`: turn 2 (`early`) → `50`, turn 10 (`late`) → `200`,
+turn 5 (between the two declared stages) → `100` unscaled, confirming `stageWeightFor`'s
+"`0.0` when nothing matches" contract holds in practice, not just on paper.
+
+#### 12.12.3 §12.11.4 — `target_spell.effect_types`, and a bug the tests caught in the test itself
+
+New `PredicateEvaluator.effectTypesOf(SpellAbility)`: a best-effort classification via the real,
+active `SpellAbility.getApi()` (per the decision's own rationale — this correctly reflects which
+mode a modal spell chose, where static metadata could not) into the vocabulary ai-play-guidance-
+spec.md §5.1's own veto example uses (`"exile"`, `"bounce"`, `"minus_x_minus_x"`, plus `"destroy"`,
+`"counter"`, `"mass_removal"`): `ApiType.Destroy`→`destroy`, `DestroyAll`/`SacrificeAll`/
+`DamageAll`→`mass_removal` (`DestroyAll` also tags `destroy`), `Counter`→`counter`, `ChangeZone`
+with `Destination=Exile`/`Hand`→`exile`/`bounce`, `Pump`/`PumpAll` with a `NumDef` starting `"-"`→
+`minus_x_minus_x` (a string-prefix heuristic, not real expression evaluation — covers literal and
+`"-X"`-style values, not arbitrary SVar formulas). A single spell can classify as more than one
+type (`DestroyAll` is both `destroy` and `mass_removal`); returns every type that applies, not the
+first match. **Not covered:** anything that doesn't map cleanly onto one of these `ApiType`s —
+documented as a best-effort classification from the start, not a claimed-exhaustive one.
+
+`testTargetSpellEffectTypes` (`PredicateEvaluatorTest`) checks `destroy` (Doom Blade), `exile`
+(Swords to Plowshares), `counter` (Counterspell), and confirms a vanilla creature spell (Runeclaw
+Bear) classifies as none of them — `effectTypesOf` returns an empty set rather than guessing.
+
+**The bug, this time in a test rather than production code:** the first draft of
+`EvaluationProfileStageScalingTest` loaded a *standalone* `AiGuidanceProfile` via
+`DeckRulesLoader.loadAiGuidanceIfNeeded(deck)` and never attached it to the AI seat's actual
+`AiController` — but `ComputerUtilCard.getBestRemovalTargetAI()` (the method under test) reads the
+profile off `((PlayerControllerAi) ai.getController()).getAi().getGuidanceProfile()`, not from
+whatever local variable a caller happens to be holding. All three assertions on *which candidate
+got chosen* passed anyway — there was only one candidate in the fixture, so vanilla evaluation
+(silently used instead of guidance, since the controller's own profile was `null`) picked it too,
+for unrelated reasons, giving no signal that guidance had never actually run. The `scoreDelta`
+assertions caught it immediately: no `"target_selected"` event fires at all when
+`hasTargetRankingRule` is never even reached. Fixed by attaching the profile through the real
+`AiController.initGuidanceProfile()` call, matching every other slice's test convention — this is
+the same "construct/wire the real production path, don't assume a nearby-looking object is
+equivalent to it" lesson §12.10.4 already drew, recurring here in test code instead of
+`PredicateEvaluator` itself.
+
