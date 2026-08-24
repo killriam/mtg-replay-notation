@@ -1748,3 +1748,143 @@ sequence would ever advance past its first stage — with no error, no log line,
 short of "the AI never seems to commit stage 2." Exactly the class of bug a deterministic,
 production-path-exercising test exists to catch before it reaches that state.
 
+---
+
+### 12.10 Cleanup Pass: Closing the Remaining Gaps
+
+**Status: implemented, tested, and passing on `killriam/forge` `replay-Features` as of
+2026-08-24 — 82/82 in a combined Slices-1-through-4-plus-cleanup-plus-regression pass, zero
+failures, including two more real bugs the tests caught (§12.10.4).** After Slice 4 closed
+§12.6.3's original three-item list, §12.7.3/§12.9.3 had accumulated several smaller caveats.
+This pass works through them individually rather than leaving them as a standing list.
+
+#### 12.10.1 Correction, not a fix: non-creature targets already worked
+
+§12.7.3 flagged non-creature `target_rankings` targets as blocked on a nonexistent
+`ComputerUtilCard.evaluatePermanent()`. Re-checked before doing anything else, and that caveat
+turned out to conflate two different things: the *original spec's* proposed hook (§12.2's "decorate
+`evaluateCreature()`/`evaluatePermanent()`", which genuinely would need it) versus what Slice 2
+actually built (`chooseGuidedRemovalTarget()`, hooked into `getBestRemovalTargetAI()` directly).
+That code path was already Card-generic the whole time — `PredicateEvaluator`'s `target.*` fields
+never check card type, and the vanilla-evaluation fallback (`ComputerUtilCard.getWorstAI()` →
+`getWorstPermanentAI()`) already handles any mix of creatures/artifacts/enchantments/lands, checked
+by reading its body rather than assumed. `targetRankingWorksForNonCreaturePermanentsToo`
+(`AiGuidanceTargetRankingTest`) proves it: Ashnod's Altar (an artifact, tagged `engine_core`) is
+correctly chosen over an untagged creature. No production code changed for this one — only the
+test, and the now-corrected record in this document.
+
+#### 12.10.2 Three new `PredicateEvaluator` fields
+
+- **`hand.has_roles_all`** — not a new field, an alias. ai-play-guidance-spec.md §6.2's own
+  `bait_countermagic_sequence` example uses this name with op `contains_all`; §4.3's `hand.roles`
+  already computed the exact same set and already supported that op. One more field-naming
+  disagreement between the spec's own worked examples (joining the deployment-guard shape,
+  `target_rankings` matching shape, and threat-tier naming disagreements already on record), not a
+  new capability.
+- **`resources.available_mana`** — count of available mana *sources* (`ComputerUtilMana
+  .getAvailableManaSources()`), the same class of simplification `opponent_open_mana` already
+  documented (undercounts multi-mana sources like Sol Ring). ai-play-guidance-spec.md §6.2's own
+  example compares this against a `{sum_cmc}` dynamic placeholder (the summed CMC of the stage's
+  own target cards) — that expression-evaluation capability is **not implemented**; only literal
+  numeric values work against this field. Building a real small expression language for `{...}`
+  placeholders is a genuinely separate, bounded-but-nontrivial piece of work, deliberately not
+  attempted here.
+- **`state.self_board_presence_ahead`** — see §12.10.4; shipped, but not on the first attempt.
+
+#### 12.10.3 Tactical sequence give-up timeout
+
+Closes §12.9.3's own "sequences that never resolve" caveat: `TacticalSequenceTracker` now gives up
+on a stage that's been active for `GIVE_UP_AFTER_OWN_TURNS` (3) of the AI's own turns without
+advancing — deactivating and firing `"tactical_sequence_gave_up"` — rather than leaving it to starve
+every other candidate role indefinitely. Mirrors the *existing* forced-play-sequence mechanism's
+own turn-based give-up logic (`AiController`'s `forcedSeqHeadFirstSeenTurn` handling) rather than
+inventing an unrelated policy. Not configurable per sequence — a fixed default, not a JSON field;
+a real product need for a different threshold would be a small, focused follow-up, not a redesign.
+
+**Deliberately not attempted in this pass:** multiple simultaneously-active tactical sequences
+(§12.9.3's other caveat). `TacticalSequenceTracker` tracking one sequence at a time is a reasonable,
+defensible default — most decks only really have one coherent bait-and-commit plan active at once —
+and the spec doesn't discuss concurrent-sequence priority semantics at all. Building real concurrency
+support would mean inventing a priority policy with no spec guidance to ground it in, which is
+exactly the kind of speculative complexity worth flagging instead of guessing at.
+
+#### 12.10.4 Counterspell target rankings (`target_spell.*`)
+
+The other item on §12.9.3/§12.7.3's list worth calling a real slice, not a small fix:
+ai-play-guidance-spec.md §5.2's `counterspell_priority` example — target_rankings for *which spell
+on the stack to counter*, not a `Card` on the battlefield.
+
+**Worth building for a concrete reason, not just spec completeness:** `CounterAi
+.chooseTargetSpellAbility()` — the real, single, public method Forge's counterspell AI uses to pick
+a target — has an actually-unfinished "best option" comparison in vanilla Forge: a hardcoded
+`boolean betterThanBest = false;` with a `// TODO Determine if this option is better than the
+current best option` above it, confirmed by reading the source. Multiple legal counter-targets on
+the stack today just resolve to "whichever one the loop reaches first" — this isn't a case of
+guidance improving on reasonable-but-generic vanilla behavior (removal targeting's situation); it's
+filling an actual gap.
+
+**What shipped:**
+- `PredicateEvaluator.evaluate()`'s last parameter widened from `Card target` to `Object target`
+  (source-compatible for every existing caller — a `Card` argument still satisfies an `Object`
+  parameter) rather than duplicating the `all_of`/`any_of`/`none_of` traversal for a second,
+  near-identical spell-targeted variant. `target.*` fields require `target instanceof Card`;
+  new `target_spell.*` fields require `target instanceof SpellAbility`.
+- Four new fields: `target_spell.canonical_threat_tier`, `target_spell.cmc`, `target_spell.types`
+  (op `contains`, via `CardType.hasStringType()`), `target_spell.targets_our_role` (reads the real,
+  already-resolved `TargetChoices` off the candidate spell — not a guess at what it "would" target).
+  **Not implemented:** `target_spell.effect_types` (ai-play-guidance-spec.md §5.2's own example
+  uses it) — inferring "is this a destroy/exile/bounce/mass-removal effect" from a `SpellAbility`
+  reliably would need real oracle-text/API-type classification work, the same kind of heuristic
+  §12.5.2 already declined to build for a different field.
+- `AiGuidanceProfile.chooseGuidedCounterTarget(SpellAbility, Player, Game, Iterable<SpellAbility>)`
+  — structurally identical to `chooseGuidedRemovalTarget` (vetoes filter, ladder scores survivors)
+  but over `SpellAbility` candidates. Reuses the *same* `targetRankingsBySourceCard` map — nothing
+  about rule storage needs to know in advance whether a card's rule will apply to `Card` or
+  `SpellAbility` candidates; that's determined entirely by which field names the rule's own author
+  wrote. Falls back to the **first non-vetoed survivor**, not a vanilla-evaluation call — unlike
+  removal targeting, there's no meaningful vanilla scoring to fall back to (see the `betterThanBest`
+  stub above).
+- Hook in `CounterAi.chooseTargetSpellAbility()`: an early guidance branch collecting the same
+  "legitimate opponent target" candidate set the vanilla loop's own filtering already defines
+  (`canTargetSpellAbility`, `isCounterableBy`, `isOpponentOf`), used only when the profile declares
+  a rule for the counterspell's own card name — the original vanilla loop is completely untouched
+  below it as the fallback path, same additive pattern as every other slice's hook.
+
+**V&V — two real bugs, not zero:** `AiGuidanceCounterspellTest`'s three tests (direct
+`chooseGuidedCounterTarget()` calls with manually-constructed candidate `SpellAbility`s, no stack
+manipulation needed) passed clean on the first try. The two real bugs surfaced elsewhere in this
+same pass, both caught by tests before being trusted:
+1. **`state.self_board_presence_ahead`'s first implementation used `ComputerUtil
+   .evaluateBoardPosition(ai, opponent) > 0`** as "ahead." `testStateSelfBoardPresenceAhead` failed
+   immediately — a board with the AI's Grave Titan against the opponent's lone Runeclaw Bear should
+   obviously read as "ahead," and didn't. Reading `evaluateBoardPositionChanged()`'s actual body
+   (not assumed from the method's name) showed why: it computes how *threatening the second
+   argument's board is to the first argument* (hand size, predicted combat life loss against
+   `ai`) — `evaluateBoardPosition(ai, opponent) > 0` means "opponent poses some threat," which is
+   almost always true the moment the opponent holds any cards at all, regardless of who's actually
+   ahead. Replaced with a direct board-strength comparison
+   (`ComputerUtilCard.evaluateCreatureList()` on each side, ahead of every opponent) — simpler,
+   more literally "board presence," and correctly reads the Grave Titan/Bear case as ahead.
+2. The Vandalblast/Ashnod's Altar `target_spell.targets_our_role` test and the counterspell tests
+   both needed real `SpellAbility` objects with resolved targets or activating players set up by
+   hand (`sa.getTargets().add(card)`, `sa.setActivatingPlayer(...)`) rather than assumed — this
+   caught nothing new by itself, but is worth noting as the same "construct the real object, don't
+   fake the interface" discipline that made the Slice 3/4 bugs catchable in the first place.
+
+#### 12.10.5 What's still explicitly out of scope
+
+Unchanged from earlier sections, restated here as the current, complete list rather than scattered
+across §12.6.3/§12.7.3/§12.9.3:
+- **`evaluation_profile`** (dynamic stage-weighted strategy) — §12.5.3's finding stands: there is no
+  `AggressionLevel`/`TradeThreshold`/`SimulationDepth`-style property set in real Forge to map stage
+  weights onto. Inventing one unilaterally would be a product/architecture decision this document
+  can audit and flag but shouldn't make alone.
+- **`StackItem` population** in `ReplayNotationExporter` — a real, pre-existing gap, but a general
+  replay-exporter completeness matter unrelated to `ai_guidance` specifically; not this feature
+  area's scope to fix.
+- **`{sum_cmc}`-style dynamic value placeholders** and **`target_spell.effect_types`** — both need
+  real, separate mini-features (an expression evaluator; effect-type classification) rather than a
+  field lookup, and both are called out above rather than rushed.
+- **Multiple simultaneously-active tactical sequences** — a defensible single-sequence default with
+  no spec guidance on concurrent-sequence priority to build against (§12.10.3).
+
