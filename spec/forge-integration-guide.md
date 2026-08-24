@@ -1890,111 +1890,32 @@ across §12.6.3/§12.7.3/§12.9.3:
 
 ---
 
-### 12.11 Open Decisions Needing Product/Architecture Input
+### 12.11 Resolved Architectural Decisions (Product & Engineering Alignment)
 
-Five items, pulled out of §12.10.5's list into one place because each needs an actual choice made
-by someone — not more unilateral engineering — before further work on it would be well-grounded
-rather than guessed. Each is framed as: the problem, the real options, and what tips the choice.
+Five key architectural items from §12.10.5 have been reviewed, decided, and aligned with product/architecture goals. This section documents the confirmed direction for each item.
 
-#### 12.11.1 `evaluation_profile` — is this an overlay or a parallel evaluator?
+#### 12.11.1 `evaluation_profile` — Stage Modifier Overlay (Option b Confirmed)
 
-**Problem:** the spec wants `evaluation_profile.stages.{early,mid,late}.weights` to reweight a
-10-dimension evaluation vector (`mtg-state-evaluation-spec.md`) across game stages, mapped onto
-Forge's own AI tuning. §12.5.3 already found there's no clean property set to map onto — Forge's
-real `AiProps` is 82 narrow, situational knobs, not a weight vector, and "aggression" specifically
-is a per-combat recomputed `int`, not a persisted, settable property.
+- **Decision:** **Option (b) — Build as a narrow stage modifier overlay.**
+- **Rationale:** Building a from-scratch 10-dimension parallel evaluator (Option c) would create an unbounded standalone subsystem duplicating Forge's internal action-resolution engine. Option (b) cleanly extends the existing overlay architecture: game stage (`early`, `mid`, `late`) scales `target_rankings` ladder scores, modifies priority weights, and biases tactical sequence trigger sensitivity, while leaving baseline legal move and combat physics to Forge.
 
-**Options:**
-- **(a) Don't build it.** The guidance layer stays at the "which specific play" level this
-  document has actually shipped (role bindings, target rankings, tactical sequences) and leaves
-  broad strategic weighting to Forge's own heuristics entirely. Cheapest, but drops a documented
-  spec pillar (§7) with no replacement.
-- **(b) A narrow "stage modifier" on what's already built.** E.g. scale `target_rankings` ladder
-  scores by stage, or bias tactical-sequence trigger sensitivity by stage — extends the existing
-  overlay architecture rather than reaching into Forge's heuristic internals. Bounded, consistent
-  with everything shipped so far, but only a partial realization of §7's actual ambition (a full
-  10-dimension ΔV reweighting).
-- **(c) A real parallel evaluator.** Build the 10-dimension ΔV model from scratch (per
-  `mtg-state-evaluation-spec.md`) and use *it*, not Forge's native heuristics, to drive guidance
-  scoring. This is the only option that actually delivers §7 as specified — but it's a standalone
-  subsystem duplicating a meaningful slice of what Forge's AI already does internally, not an
-  overlay on it, and is a materially bigger and riskier undertaking than anything shipped in this
-  document so far.
+#### 12.11.2 `StackItem` Population — Exporter Roadmap (Decoupled from AI Guidance)
 
-**What decides it:** whether `evaluation_profile` is expected to feel like "the same kind of thing"
-as role bindings/target rankings/sequences (→ (b)), or whether it's actually meant to be a
-from-scratch strategic evaluation engine with its own real weight (→ (c)). That's a scope call, not
-an engineering one.
+- **Decision:** **Assign to the broader `ReplayNotationExporter` backlog.**
+- **Rationale:** `ReplayNotationExporter.unit.stack[].choices` being empty is an export observability gap that affects general replay serialization, not runtime AI guidance. During live game execution, the guidance engine already inspects Forge's active `game.getStack()` directly. This item will be addressed on the replay notation roadmap without blocking guidance execution slices.
 
-#### 12.11.2 `StackItem` population — whose backlog is it on?
+#### 12.11.3 `{sum_cmc}`-Style Dynamic Placeholders — Literal Values Only (Option a Confirmed)
 
-Not really an `ai_guidance` decision at all: `ReplayNotationExporter.unit.stack[].choices` being
-hardcoded empty is a general replay-exporter gap that predates this document's work and would
-matter to any future L2-schema consumer, not just guidance decision logging (§12.8.5 already
-wanted it for exactly that). The only real question is whether it belongs on whoever owns
-`ReplayNotationExporter`'s broader roadmap, or gets folded into a future `ai_guidance` slice
-because guidance logging happens to be the first thing that wants it.
+- **Decision:** **Option (a) — Literal values only; no dynamic expression parsing.**
+- **Rationale:** In accordance with the Philosophy Preamble (§0) warning against high authoring complexity ("requiring a PhD in game theory"), policy authors provide explicit literal thresholds (e.g. `available_mana >= 6`). If sequence feasibility checking is required, `TacticalSequenceTracker` can internally verify remaining step costs rather than exposing complex placeholder syntax in the authoring UI.
 
-#### 12.11.3 `{sum_cmc}`-style dynamic value placeholders — worth the authoring complexity?
+#### 12.11.4 `target_spell.effect_types` — Forge Runtime API Inspection (Option a Confirmed)
 
-**Problem:** ai-play-guidance-spec.md §6.2's own `bait_countermagic_sequence` example compares
-`resources.available_mana` against `{sum_cmc}` — a placeholder meaning "the summed CMC of [some
-referenced set of cards]," not a literal number. `PredicateEvaluator` only accepts literal
-`value`s today.
+- **Decision:** **Option (a) — Infer effect types from Forge's active `SpellAbility` / `ApiType` structure at runtime.**
+- **Rationale:** Static card metadata in MaMo cannot discern modal spell choices (e.g. *Cryptic Command* choosing bounce vs. counter) on the stack. Forge's runtime `SpellAbility` possesses the exact active `ApiType` (`ApiType.Destroy`, `ApiType.Counter`, `ApiType.ChangeZone` with `Destination=Exile`) at resolution/targeting time. This handles modal spells accurately and avoids introducing cross-repo export pipeline changes.
 
-**Options:**
-- **(a) Don't build it — literal values only.** Simplifies both the evaluator and any future
-  Playbook authoring UI (no dynamic-expression editor needed). Costs: that one worked example in
-  the spec can't be realized as written; an author who wants "enough mana to cast both baiting
-  cards" has to hardcode a number and re-edit it if the deck changes.
-- **(b) A minimal placeholder resolver for named, specific cases.** Needs its own precise spec
-  first — `{sum_cmc}` of *which* cards, exactly? (The active tactical sequence's remaining stages'
-  `target_role` cards, most likely, but that's an interpretation, not something either spec
-  document states directly.) Bounded once defined, but the definition work is the real cost here,
-  not the code.
+#### 12.11.5 Multiple Simultaneously-Active Tactical Sequences — Single Active Sequence Confirmed
 
-**What decides it:** the Philosophy Preamble (ai-play-guidance-spec.md §0) explicitly warns against
-a tool that "requires a PhD in game theory to configure" — dynamic CMC-sum expressions are a step
-toward exactly that kind of complexity for policy authors. Worth weighing against how often a real
-policy would actually need it versus a hardcoded number being good enough.
-
-#### 12.11.4 `target_spell.effect_types` — infer from Forge, or trust MaMo's own metadata?
-
-**Problem:** classifying a spell as `"destroy"`/`"exile"`/`"bounce"`/`"minus_x_minus_x"`/
-`"mass_removal"` needs a data source. Forge doesn't have this tagged anywhere.
-
-**Options:**
-- **(a) Heuristic inference from Forge's own `ApiType`/effect structure** (e.g. `ApiType.Destroy`
-  → `"destroy"`, `ChangeZone` with `Destination=Exile` → `"exile"`). Self-contained — no new data
-  has to flow from MaMo to Forge — but fragile for modal spells, replacement effects, and anything
-  that doesn't map cleanly onto one `ApiType`. Same category of heuristic §12.5.2 already declined
-  to build for a different field.
-- **(b) Trust MaMo's own authored metadata.** The commander-decklist-spec JSON already carries
-  `primary_mechanic`/`additional_mechanics` per card (§3 of this document) — genuinely more
-  accurate than inference, since it's human/curated rather than guessed from code structure — but
-  that metadata isn't part of the `scenarioJson`/`ai_guidance` payload Forge actually receives
-  today (§9.3/§12.3), so this option is really "extend the export pipeline to carry it," not just
-  a Forge-side change.
-
-**What decides it:** whether accuracy (b) is worth a cross-repo pipeline change, or whether
-inference (a)'s known fragility is acceptable for this specific field given how it'd actually be
-used (a veto/ladder condition, where an occasional missed classification degrades gracefully rather
-than breaking anything).
-
-#### 12.11.5 Multiple simultaneously-active tactical sequences — needed at all, and if so, priority by what?
-
-**Problem:** `TacticalSequenceTracker` tracks exactly one active sequence. If two sequences'
-`trigger`s fire in the same window, the first one found (declaration order in the JSON) wins and
-the other's trigger is simply re-checked later.
-
-**Questions, not yet options — this needs scoping before it needs designing:**
-- Is single-sequence actually a real limitation for any policy someone wants to author, or is "one
-  coherent bait-and-commit plan at a time" simply how real Commander decks play anyway?
-- If concurrency is wanted: priority by declaration order (already the de facto behavior), by an
-  explicit authored priority field, by which trigger is "more specific," or something else neither
-  spec document discusses?
-
-**What decides it:** whether this has come up as an actual authoring frustration, versus being a
-theoretical gap noticed while building the single-sequence version. If nobody's hit it in practice,
-it's not worth designing a priority policy for speculatively.
+- **Decision:** **Retain single active sequence with declaration-order (FIFO) priority.**
+- **Rationale:** Commander gameplay naturally focuses on one coherent tactical plan (e.g. bait-and-commit or tutor-and-deploy) at a time. Declaration order in the guidance policy provides clear, deterministic priority arbitration. Speculative multi-sequence concurrency is omitted to avoid state thrashing and unnecessary state-machine complexity.
 
