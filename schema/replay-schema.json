@@ -198,6 +198,11 @@
                 "starting_life": {
                     "type": "integer",
                     "description": "Starting life total for this player (v1.5.0+)"
+                },
+                "team": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Team identifier for multiplayer team formats (1-indexed, v1.9.0+)"
                 }
             }
         },
