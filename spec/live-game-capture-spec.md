@@ -77,6 +77,104 @@ the service reconstructs a deterministic, timestamped **MTG Replay Notation** do
 
 ---
 
+## 2.1 Sequential Technical Flow
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Player / User
+    participant Ingestion as 1. File & Event Ingestion
+    participant Proposer as 2. Deck Proposer & Identifier
+    participant Analyzer as 3. Multi-Modal Analysis Engine
+    participant CardDB as BigQuery MTG Card Catalog
+    participant Emitter as 4. Replay Gamelog Emitter
+    participant Scribe as Scribe / Ground Truth Verifier
+
+    %% Step 1
+    Note over User,Ingestion: Step 1: Reference all capture files of event
+    User->>Ingestion: Ingest audio WAVs, video frames, Companion telemetry
+    Ingestion->>Ingestion: Build synchronized media timeline & chunk index
+
+    %% Step 2
+    Note over Ingestion,Proposer: Step 2: Identify decks with user proposal
+    Ingestion->>Proposer: Initial audio/visual scan for commander names & mechanics
+    Proposer->>User: Propose Deck A (Seat 1) & Deck B (Seat 2) from MaMo / Moxfield
+    User-->>Proposer: Confirm / adjust deck selections & revision IDs
+
+    %% Step 3
+    Note over Proposer,Analyzer: Step 3: Analyzing files (90/10 Decklist Prior + CI Fallback)
+    Proposer->>Analyzer: Inject confirmed 100-card lexicons & Commander Color Identities
+    Analyzer->>Analyzer: ASR transcription + Vision detection of plays & damage
+    alt 90% Case: Card found in Decklist
+        Analyzer->>Analyzer: High-confidence card resolution from deck prior
+    else 10% Case: Recent swap / Not in Decklist
+        Analyzer->>CardDB: Fallback search constrained strictly to Commander Color Identity
+        CardDB-->>Analyzer: Candidate card matches within legal colors
+    end
+
+    %% Step 4
+    Note over Analyzer,Emitter: Step 4: Propose gamelogs with confidence score
+    Analyzer->>Emitter: Generate timestamped L1Event stream (Main cards played + Damage)
+    Emitter->>User: Propose MtgReplayFile JSON with per-event confidence scores (0.0 - 1.0)
+    
+    %% Verification
+    Note over Emitter,Scribe: Independent Verification
+    Emitter->>Scribe: Cross-validate proposed gamelog against handwritten Signal/Scribe notes
+    Scribe-->>User: Accuracy & state-consistency score report
+```
+
+---
+
+## 2.2 Technical Pipeline Breakdown
+
+### Step 1: Reference All Capture Files of the Event
+- Ingest and index all media components belonging to the match:
+  - Audio WAV chunks with sample-rate normalization (e.g. 16kHz mono).
+  - Overhead playmat video files / synchronized frame buffers.
+  - Companion telemetry logs (turn increments, life total timestamps).
+- Builds a unified multi-stream timeline: $T = [t_0, t_{\text{end}}]$.
+
+### Step 2: Deck Identification & User Proposal
+1. **Pre-scan**: Rapid keyword search across the initial audio/video segments for commander declarations (e.g. *"Kadena"*, *"Yuma"*, *"Davros"*, *"Mr. House"*).
+2. **Proposal Generation**: Queries MaMo backend and Moxfield reference decks to present a candidate match setup:
+   - Seat 1: `David` $\rightarrow$ Deck: `Kadena Morph` (Revision `rev-001`).
+   - Seat 2: `Brother` $\rightarrow$ Deck: `Davros Dalek Clones` (Moxfield ID `xyz123`).
+3. **User Confirmation**: The user confirms or adjusts the deck assignment before full multi-modal analysis begins.
+
+### Step 3: Multi-Modal File Analysis (The 90/10 Rule & Color Identity Constraints)
+- **90% Decklist Prior**:
+  - The analysis assumes **$\ge 90\%$ of played cards exist in the confirmed decklist**.
+  - ASR decoder and vision matcher prioritize the $\sim 100$ card entities of that player's deck.
+- **10% Fallback (Color-Identity-Constrained BigQuery Search)**:
+  - If a player plays a card not in the decklist (e.g. a recent card swap or tech choice):
+  - The system initiates a fallback search against the complete BigQuery MTG Card Catalog (`magicmoments-442919.MtgCards.cards_transformed`).
+  - **Constraint Rule**: The search is strictly filtered by the commander's **Color Identity**:
+    $$\text{Card.ColorIdentity} \subseteq \text{Commander.ColorIdentity}$$
+- **Critical Action Guarantee**:
+  - Even if minor micro-actions (e.g. unannounced mana floating, priority passes) are omitted, the engine guarantees capturing:
+    1. **Every main card played** (`PLAY_LAND`, `CAST`, `ACTIVATE`).
+    2. **All damage created and life total changes** (`DAMAGE`, `LIFE`, `ATTACK`).
+
+### Step 4: Propose Gamelog with Per-Entry Confidence Scores
+- Reconstructs the game as a standard `mtg-replay` v1.6.0 document.
+- **Confidence Scoring per Entry**: Every L1 event includes a `confidence` field ($0.0 - 1.0$) and `source` flags:
+  ```json
+  {
+    "id": "evt_042",
+    "timestamp": "20:45:12.300",
+    "type": "CAST",
+    "player": "P2",
+    "card_name": "Phyrexian Metamorph",
+    "confidence": 0.96,
+    "source": "audio_declaration_and_vision_placement",
+    "in_decklist": true
+  }
+  ```
+- **Role of Game Notes**:
+  - Game notes (from Signal or hand-written pads) are **not used during initial perceptual investigation**; they serve purely as **independent post-analysis verification** to measure reconstruction quality and benchmark model accuracy.
+
+---
+
 ## 3. Sensory Ingestion Layer
 
 ### 3.1 Audio Capture & Chunking
