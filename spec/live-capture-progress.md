@@ -36,5 +36,6 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 
 ### 2026-08-29
 - Archived 13 WAV audio clips and transcripts into permanent repo fixture path `testing/fixtures/live-capture/2026-08-28-session/`.
-- Authored initial [Live Game Capture Spec v1.0.0](./live-game-capture-spec.md).
+- Created structured session game notes fixture [`game_notes_scribe.md`](../../testing/fixtures/live-capture/2026-08-28-session/game_notes_scribe.md).
+- Authored [Live Game Capture Spec v1.0.0](./live-game-capture-spec.md) incorporating Game Notes / Scribe stream ingestion and notes-driven disambiguation.
 - Updated [MTG Replay Notation README](../README.md) documentation index.

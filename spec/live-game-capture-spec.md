@@ -20,8 +20,9 @@ Physical tabletop Magic: The Gathering (specifically Commander and 1v1 formats) 
 The **Live Game Capture Service** bridges this physical-to-digital gap. By fusing:
 1. **Verbal audio declarations** (spells cast, triggers announced, phase changes, targets declared),
 2. **Visual playmat state tracking** (overhead camera detecting card movements, tap/untap orientation, facedown cards),
-3. **Decklist domain priors** (known 100-card Commander decklists with Scryfall/BigQuery Oracle IDs, card names, and mechanics), and
-4. **Companion app telemetry** (life changes, turn counters, manual card markings),
+3. **Decklist domain priors** (known 100-card Commander decklists with Scryfall/BigQuery Oracle IDs, card names, and mechanics),
+4. **Companion app telemetry** (life changes, turn counters, manual card markings), and
+5. **Game Notes / Scribe artifacts** (in-game shorthand notes, life checkpoints, player annotations, post-game debrief notes),
 
 the service reconstructs a deterministic, timestamped **MTG Replay Notation** document (`MtgReplayFile` with `log_l1` events and `views_l2` decision snapshots) directly compatible with `new-backend`, `MaMoFrontend` replay viewers, and `mamo-story-engine`.
 
@@ -30,47 +31,48 @@ the service reconstructs a deterministic, timestamped **MTG Replay Notation** do
 ## 2. System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              1. SENSORY INGESTION                               │
-├───────────────────────────────┬────────────────────────────────┬────────────────┤
-│         Audio Input           │          Video Input           │   Companion    │
-│  (Room Mic / Phone Mic WAV)   │ (Overhead WebCam / Phone Stand)│ Telemetry Sync │
-└───────────────┬───────────────┴────────────────┬───────────────┴────────┬───────┘
-                │                                │                        │
-                ▼                                ▼                        │
-┌───────────────────────────────┐┌───────────────────────────────┐        │
-│   2. MTG-Biased ASR Engine    ││ 3. Vision & Playmat Tracker   │        │
-│  (Whisper Large / Local STT)  ││ (Homography, OCR, Taps, Zones)│        │
-│  Context: Known Deck Lexicon  ││ Input: Board ROI Bounding Box │        │
-└───────────────┬───────────────┘└───────────────┬───────────────┘        │
-                │ Text Transcripts with Timestamps│ Card Detection & Zones │
-                └───────────────┬────────────────┘                        │
-                                ▼                                         ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                 4. MULTI-MODAL FUSION & STATE INFERENCE ENGINE                  │
-│                                                                                 │
-│  ┌─────────────────────────┐  ┌──────────────────────────┐  ┌────────────────┐ │
-│  │   Decklist Priors &     │  │  NLP Action & Intent     │  │ Temporal Event │ │
-│  │   BigQuery Oracle Index │  │  Extractor (German/EN)   │  │ Synchronizer   │ │
-│  └────────────┬────────────┘  └────────────┬─────────────┘  └────────┬───────┘ │
-│               │                            │                         │         │
-│               ▼                            ▼                         ▼         │
-│  ┌───────────────────────────────────────────────────────────────────────────┐ │
-│  │                    MTG Game State Machine & Rules Solver                  │ │
-│  │  - Validates legal transitions (mana, card ownership, priority, triggers)  │ │
-│  │  - Disambiguates facedown morphs/manifests using decklist identity        │ │
-│  │  - Fills unstated implicit game actions (untap step, state-based actions) │ │
-│  └───────────────────────────────────────────────────────────────────────────┘ │
-└───────────────────────────────────────┬─────────────────────────────────────────┘
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                     5. REPLAY NOTATION EMITTER & CONSUMERS                      │
-│                                                                                 │
-│   MTG Replay Notation v1.6.0 (`meta`, `card_index`, `initial_state`, `log_l1`)   │
-│   - POST /api/gamelog/upload (new-backend Postgres + BigQuery association)      │
-│   - MaMoFrontend: Replay Player, Turn Explorer, Strategy Evaluation             │
-│   - mamo-story-engine: AI Narrative Prose & Scene Image Generation              │
-└─────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                       1. SENSORY INGESTION                                       │
+├───────────────────┬───────────────────┬──────────────────────────┬───────────────────────────────┤
+│    Audio Input    │    Video Input    │ Companion Telemetry Sync │   Game Notes / Scribe Stream  │
+│(Room/Phone Mic WAV│(Overhead Playmat) │(Life/Turns/Drawn Check)  │(In-Game Notes/Debrief/Scribe) │
+└─────────┬─────────┴─────────┬─────────┴────────────┬─────────────┴───────────────┬───────────────┘
+          │                   │                      │                             │
+          ▼                   ▼                      │                             │
+┌───────────────────┐┌───────────────────┐           │                             │
+│ 2. Biased ASR     ││ 3. Vision Tracker │           │                             │
+│ (Whisper + Prompt)││(OCR, Taps, Zones) │           │                             │
+└─────────┬─────────┘└────────┬──────────┘           │                             │
+          │ Transcripts       │ Card Detections      │ Telemetry Anchors           │ Semantic Landmarks
+          └─────────┬─────────┴──────────────────────┼─────────────────────────────┘
+                    │                                │
+                    ▼                                ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                          4. MULTI-MODAL FUSION & STATE INFERENCE ENGINE                          │
+│                                                                                                  │
+│  ┌─────────────────────────┐  ┌──────────────────────────┐  ┌─────────────────────────────────┐  │
+│  │   Decklist Priors &     │  │  NLP Action & Intent     │  │ Temporal Event Synchronizer &   │  │
+│  │   BigQuery Oracle Index │  │  Extractor (German/EN)   │  │ Scribe Landmark Cross-Validator │  │
+│  └────────────┬────────────┘  └────────────┬─────────────┘  └────────────────┬────────────────┘  │
+│               │                            │                                 │                   │
+│               ▼                            ▼                                 ▼                   │
+│  ┌────────────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │                            MTG Game State Machine & Rules Solver                           │  │
+│  │  - Cross-validates verbal claims against written scribe notes and life totals               │  │
+│  │  - Validates legal transitions (mana, card ownership, priority, triggers)                   │  │
+│  │  - Disambiguates facedown morphs/manifests using decklist identity + scribe annotations     │  │
+│  │  - Fills unstated implicit game actions (untap step, state-based actions)                  │  │
+│  └────────────────────────────────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────┬─────────────────────────────────────────────────┘
+                                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                              5. REPLAY NOTATION EMITTER & CONSUMERS                              │
+│                                                                                                  │
+│   MTG Replay Notation v1.6.0 (`meta`, `card_index`, `initial_state`, `log_l1`, `views_l2`)      │
+│   - POST /api/gamelog/upload (new-backend Postgres + BigQuery association)                       │
+│   - MaMoFrontend: Replay Player, Turn Explorer, Strategy Evaluation                              │
+│   - mamo-story-engine: AI Narrative Prose & Scene Image Generation                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -104,6 +106,16 @@ the service reconstructs a deterministic, timestamped **MTG Replay Notation** do
   - `CARD_DRAWN_MARKED`, `CARD_USEFUL_MARKED`
 - These telemetry points serve as **high-confidence anchor timestamps** to synchronize audio-visual event inference.
 
+### 3.4 Game Notes & Scribe Artifact Ingestion
+Players frequently jot down in-game shorthand, turn notes, or post-match summaries (e.g. *"Warte, ich muss erst mal was schreiben: Plateau, Soaring... "* or logging commander casts and life milestones). These notes serve as a critical quality multiplier:
+- **Formats Supported**:
+  - **In-App Companion Notes**: Timestamped turn notes typed during play (`CompletedGame.notes`, `sessionNotes`).
+  - **Structured Scribe Text / Markdown**: Scribe logs containing turn markers (`T1: Plateau -> Sol Ring`, `T4: Davros cast`, `T7: Phyrexian Metamorph -> Dalek Drone`).
+  - **Post-Game Debrief Annotations**: Retrospective notes recorded immediately after match completion (e.g. winner, final turns, key combos).
+- **Signal Value**:
+  - Provides **ground-truth sequence landmarks** to disambiguate periods of quiet play, background noise, or overlapping speech.
+  - Exposes **hidden/private information** intentionally recorded by the player (e.g. card tutored to hand, facedown morph card identity).
+
 ---
 
 ## 4. Domain Prior & Lexicon Biasing
@@ -133,6 +145,11 @@ Before game ingestion begins, the session resolves the active decklists for all 
 1. **Vocabulary Prompt Injection**: The combined unique list of card names, mechanic keywords (`morph`, `manifest`, `monarch`, `cascade`, `connive`), and player names are fed into the speech-to-text decoder prompt (e.g. Whisper `initial_prompt` or decoding vocabulary constraint).
 2. **Fuzzy Phonetic Matching**:
    - Phonetic representations (Double Metaphone / Soundex) match mispronounced or accented card names (e.g., German pronunciation of *"Trail of Mystery"*, *"Court of Vantress"*, *"Blasphemous Act"* / *"Blasphälose"*).
+
+### 4.3 Notes-Driven Disambiguation & Cross-Validation
+Written notes act as an authoritative tie-breaker for ambiguous phonetic transcriptions:
+- If ASR transcribes *"Soaring"* or *"Radgau"*, but the game note contains `Sol Ring` and `Ragavan`, the fusion engine automatically resolves the card entity to `Sol Ring` / `Ragavan, Nimble Pilferer`.
+- If audio volume drops during combat, written life changes (e.g. `P2: 40 -> 34`) confirm combat damage amounts.
 
 ---
 
