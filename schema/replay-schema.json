@@ -176,6 +176,11 @@
                     "type": ["integer", "null"],
                     "minimum": 0,
                     "description": "Total number of turns played in the replayed game (v1.9.0+)"
+                },
+                "replayed_mode": {
+                    "type": ["string", "null"],
+                    "enum": ["deterministic", "shuffle", null],
+                    "description": "Replay mode used: 'deterministic' (fixed library order) or 'shuffle' (human with shuffled deck) (v1.9.0+)"
                 }
             }
         },
