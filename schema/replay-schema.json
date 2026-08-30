@@ -162,6 +162,20 @@
                     "type": ["string", "null"],
                     "format": "date-time",
                     "description": "ISO 8601 timestamp when this file was replayed (set by replay launcher, v1.8.0+)"
+                },
+                "replayed_winner": {
+                    "type": ["string", "null"],
+                    "description": "Winning player ID or 'draw' in the replayed game (v1.9.0+)"
+                },
+                "replayed_outcome": {
+                    "type": ["string", "null"],
+                    "enum": ["win", "loss", "draw", null],
+                    "description": "Outcome for the human player (P1) in the replayed game (v1.9.0+)"
+                },
+                "replayed_turns": {
+                    "type": ["integer", "null"],
+                    "minimum": 0,
+                    "description": "Total number of turns played in the replayed game (v1.9.0+)"
                 }
             }
         },
