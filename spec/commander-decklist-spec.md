@@ -464,6 +464,62 @@ be declared in the mulligan section:
 | `value` | number | **Yes** | Override value for this specific card |
 | `reason` | string | No | Explanation for the override |
 
+#### 6.1.4 Compact Inline Encoding (`.dck` `AiHints=`)
+
+**Purpose:** §§6.1.1–6.1.3 above define the mulligan rule as part of the full
+`mtg-commander-decklist` JSON file. That file is not always present at the point a deck is
+actually played — Forge's real game client loads decks from plain-text `.dck` files, which
+carry no JSON payload by default. This compact, non-JSON encoding lets the same `card_values`
+and `thresholds` data ride along on the `.dck` file itself, as one `AiHints=` line in its
+`[metadata]` section, so a deck's mulligan tuning reaches a real game with no companion file
+required. `card_overrides` (§6.1.3) are supported in this form too; `card_values` (§6.1.1) are
+**not** — a consumer that also needs to override the base tier weights must use the full JSON
+form via a `DecklistSpec$<path>` `AiHints` token instead (a path to an external
+`mtg-commander-decklist` JSON file; not detailed further here — see
+`forge-integration-guide.md` §12.5.5 for that mechanism).
+
+**Location:** One `AiHints=` line inside the `.dck` file's `[metadata]` section. If more than
+one hint token is present (e.g. alongside a future `Combo$`/`DontCombo$` token), they are
+joined with `" | "`.
+
+**Tokens:**
+
+```
+AiHints=MulliganThreshold$0:3.5;1:3.0;2:2.5;3:2.0 | MulliganOverride$Sol Ring:1.2;Doubling Season:0.6
+```
+
+| Token | Format | Maps to |
+|-------|--------|---------|
+| `MulliganThreshold$` | `<round>:<min_value>;<round>:<min_value>;...` | One entry per `thresholds[]` item (§6.1.2) — `hand_size`/`description` are dropped, since they're informational-only in the JSON form |
+| `MulliganOverride$` | `<CardName>:<value>;<CardName>:<value>;...` | One entry per `card_overrides[]` item (§6.1.3) — `reason` is dropped |
+
+`round` is an integer, `min_value`/`value` are decimal numbers, `CardName` is the exact card
+name (must not contain `:` or `;`). Entries within one token are `;`-separated; there is no
+escaping mechanism for a `;` or `:` inside a card name — such a card cannot be expressed in
+this compact form (falls back to the JSON `DecklistSpec$` route instead).
+
+**Interpretation is identical to §6.1.2's decision procedure**, substituting the tokens above
+for the JSON fields, and falling back to §6.1.1's default `card_values` (`land: 1.0`,
+`cmc_0_to_2: 0.8`, `cmc_3: 0.5`, `other: 0.3`) and this spec's default thresholds
+(`0:3.5, 1:3.0, 2:2.5, 3:2.0`) for any round not listed:
+
+1. Score each card in the current hand: an override value if one matches its name, else the
+   default tier value for land / CMC≤2 / CMC==3 / other.
+2. Sum every card's value → hand score.
+3. Find the `MulliganThreshold$` entry for the current round (0 = initial 7-card hand); if
+   none exists for that round, use the default listed above.
+4. Keep if `hand score ≥ min_value`; otherwise mulligan (London mulligan: draw 7, bottom
+   `round + 1` cards).
+
+**Absence is valid:** a `.dck` file with no `MulliganThreshold$`/`MulliganOverride$` tokens
+(or no `AiHints=` line at all) carries no opinion on mulligan tuning — a consuming program
+should fall back to its own default mulligan behavior rather than treating this as an error.
+
+**Reference implementation:** `new-backend`'s `getPublicDeckForgeExport` (writer) and Forge's
+`forge.deck.DeckRulesConfig.fromInlineHints()` / `forge.ai.ComputerUtil.wantMulligan()` via
+`forge.ai.mulligan.DecklistMulliganEvaluator` (reader) — see `forge-integration-guide.md`
+§12.5.5 for the surrounding `AiHints`/`DecklistSpecPath` mechanism this token family extends.
+
 ### 6.2 Combos
 
 The `combos` array declares known synergistic combinations (including infinite combos

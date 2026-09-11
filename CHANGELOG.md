@@ -5,6 +5,22 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.9] - 2026-09-11
+
+### Added
+- **`commander-decklist-spec.md` §6.1.4 (new): Compact Inline Encoding (`.dck` `AiHints=`).**
+  Documents the plain-text `MulliganThreshold$`/`MulliganOverride$` token format that carries
+  §6.1's mulligan rule (`card_values`/`thresholds`/`card_overrides`) on a Forge `.dck` file's
+  own `AiHints=` metadata line, for decks played without a companion `mtg-commander-decklist`
+  JSON file present. Cross-references `forge-integration-guide.md` §12.5.5 for the underlying
+  `AiHints`/`DecklistSpecPath` mechanism. Reflects an already-shipped implementation
+  (`new-backend`'s `getPublicDeckForgeExport` as writer; Forge's own
+  `forge.deck.DeckRulesConfig.fromInlineHints()` / `forge.ai.ComputerUtil.wantMulligan()` as
+  reader, verified directly against Forge fork source) — this entry documents existing behavior
+  rather than proposing new behavior. No change to the `mtg-commander-decklist` JSON schema or
+  its own version (still v1.2.0) — `card_values` overrides remain JSON-only (§6.1.1), not
+  expressible in this compact form.
+
 ## [1.6.8] - 2026-08-17
 
 ### Added
