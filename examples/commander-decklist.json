@@ -496,9 +496,14 @@
         "mulligan": {
             "card_values": {
                 "land": 1.0,
-                "cmc_0_to_2": 0.8,
-                "cmc_3": 0.5,
-                "other": 0.3
+                "mv0": 0.85,
+                "mv1": 0.8,
+                "mv2": 0.75,
+                "mv3": 0.6,
+                "mv4": 0.45,
+                "mv5": 0.4,
+                "mv6": 0.35,
+                "mv7Plus": 0.3
             },
             "card_overrides": [
                 {

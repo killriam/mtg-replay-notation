@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.2.0
+## Companion Specification v1.3.0
 
 **Status:** Stable
 **Published:** March 2026
@@ -336,19 +336,30 @@ and used by replay analysis and coaching tools.
 
 The mulligan rule defines how to score an opening hand to decide whether to keep it
 or take a mulligan. Each card in the opening hand is assigned a **value** based on its
-type, and the total hand value is compared against a **threshold** for the current
-mulligan round.
+type and exact mana value, and the total hand value is compared against a **threshold**
+for the current mulligan round.
 
 #### 6.1.1 Card Values
+
+> **Changed in v1.3.0** (previously 4 CMC-bucketed keys — `cmc_0_to_2`/`cmc_3`/`other`;
+> that shape is no longer valid). Widened to a full per-mana-value curve so a deck's
+> standard baseline can distinguish, say, a 1-drop from a 2-drop rather than lumping
+> "CMC 0–2" together. No production decks had ever saved a `mulligan` block under the
+> old shape at the time of this change, so no migration note is needed for existing data.
 
 ```json
 {
     "mulligan": {
         "card_values": {
             "land": 1.0,
-            "cmc_0_to_2": 0.8,
-            "cmc_3": 0.5,
-            "other": 0.3
+            "mv0": 0.85,
+            "mv1": 0.8,
+            "mv2": 0.75,
+            "mv3": 0.6,
+            "mv4": 0.45,
+            "mv5": 0.4,
+            "mv6": 0.35,
+            "mv7Plus": 0.3
         }
     }
 }
@@ -357,25 +368,34 @@ mulligan round.
 | Key | Default | Applies To |
 |-----|---------|------------|
 | `land` | `1.0` | Any land card |
-| `cmc_0_to_2` | `0.8` | Non-land cards with converted mana cost 0–2 |
-| `cmc_3` | `0.5` | Non-land cards with converted mana cost exactly 3 |
-| `other` | `0.3` | All other non-land cards (CMC 4+) |
+| `mv0` | `0.85` | Non-land cards with mana value exactly 0 |
+| `mv1` | `0.8` | Non-land cards with mana value exactly 1 |
+| `mv2` | `0.75` | Non-land cards with mana value exactly 2 |
+| `mv3` | `0.6` | Non-land cards with mana value exactly 3 |
+| `mv4` | `0.45` | Non-land cards with mana value exactly 4 |
+| `mv5` | `0.4` | Non-land cards with mana value exactly 5 |
+| `mv6` | `0.35` | Non-land cards with mana value exactly 6 |
+| `mv7Plus` | `0.3` | Non-land cards with mana value 7 or higher |
 
-All values are floating-point numbers. Consumers may override individual categories
-for specific decks (e.g., a high-CMC ramp deck might raise `other` to `0.4`).
+All values are floating-point numbers. All 9 keys are required (a consumer should treat
+a missing key as the default shown above, not as an error). Consumers may override
+individual entries for specific decks (e.g., a high-curve ramp deck might raise
+`mv7Plus`), and a per-card `card_overrides` entry (§6.1.3) always wins over this curve
+for the named card.
 
 **How to compute a hand's total value:**
 
-For each card in the opening hand, look up its value from `card_values` based on
-whether it is a land and, if not, its CMC. Sum the individual card values. The result
-is the hand's **total value**.
+For each card in the opening hand, look up its value from `card_values`: `land` if it's
+a land, else the entry matching its mana value rounded to the nearest integer and
+clamped to `[0, 7]` (so mana value 7 and anything higher both use `mv7Plus`). Sum the
+individual card values. The result is the hand's **total value**.
 
 **Example:**
-A 7-card hand containing 3 lands (1.0 each), 2 mana rocks with CMC 2 (0.8 each), and
-2 spells with CMC 5 (0.3 each) has a total value of:
+A 7-card hand containing 3 lands (1.0 each), 2 mana rocks with mana value 2 (0.75 each),
+and 2 spells with mana value 5 (0.4 each) has a total value of:
 
 ```
-3×1.0 + 2×0.8 + 2×0.3 = 3.0 + 1.6 + 0.6 = 5.2
+3×1.0 + 2×0.75 + 2×0.4 = 3.0 + 1.5 + 0.8 = 5.3
 ```
 
 #### 6.1.2 Mulligan Thresholds
@@ -437,9 +457,14 @@ be declared in the mulligan section:
     "mulligan": {
         "card_values": {
             "land": 1.0,
-            "cmc_0_to_2": 0.8,
-            "cmc_3": 0.5,
-            "other": 0.3
+            "mv0": 0.85,
+            "mv1": 0.8,
+            "mv2": 0.75,
+            "mv3": 0.6,
+            "mv4": 0.45,
+            "mv5": 0.4,
+            "mv6": 0.35,
+            "mv7Plus": 0.3
         },
         "card_overrides": [
             {
@@ -450,7 +475,7 @@ be declared in the mulligan section:
             {
                 "name": "Doubling Season",
                 "value": 0.6,
-                "reason": "High CMC but crucial for combo; better than average other"
+                "reason": "High mana value but crucial for combo; better than the curve default"
             }
         ],
         "thresholds": [ /* ... */ ]
@@ -499,12 +524,13 @@ escaping mechanism for a `;` or `:` inside a card name — such a card cannot be
 this compact form (falls back to the JSON `DecklistSpec$` route instead).
 
 **Interpretation is identical to §6.1.2's decision procedure**, substituting the tokens above
-for the JSON fields, and falling back to §6.1.1's default `card_values` (`land: 1.0`,
-`cmc_0_to_2: 0.8`, `cmc_3: 0.5`, `other: 0.3`) and this spec's default thresholds
-(`0:3.5, 1:3.0, 2:2.5, 3:2.0`) for any round not listed:
+for the JSON fields, and falling back to §6.1.1's default `card_values` curve
+(`land: 1.0, mv0: 0.85, mv1: 0.8, mv2: 0.75, mv3: 0.6, mv4: 0.45, mv5: 0.4, mv6: 0.35,
+mv7Plus: 0.3`) and this spec's default thresholds (`0:3.5, 1:3.0, 2:2.5, 3:2.0`) for any
+round not listed:
 
 1. Score each card in the current hand: an override value if one matches its name, else the
-   default tier value for land / CMC≤2 / CMC==3 / other.
+   default curve value for land / its exact mana value (clamped to `mv7Plus` at 7+).
 2. Sum every card's value → hand score.
 3. Find the `MulliganThreshold$` entry for the current round (0 = initial 7-card hand); if
    none exists for that round, use the default listed above.
@@ -1110,9 +1136,14 @@ inline decklist over an external lookup.
         "mulligan": {
             "card_values": {
                 "land": 1.0,
-                "cmc_0_to_2": 0.8,
-                "cmc_3": 0.5,
-                "other": 0.3
+                "mv0": 0.85,
+                "mv1": 0.8,
+                "mv2": 0.75,
+                "mv3": 0.6,
+                "mv4": 0.45,
+                "mv5": 0.4,
+                "mv6": 0.35,
+                "mv7Plus": 0.3
             },
             "card_overrides": [
                 {
@@ -1280,6 +1311,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3.0 | 2026-09-12 | **Breaking:** `mulligan.card_values` (§6.1.1) widened from 4 CMC-bucketed keys (`cmc_0_to_2`/`cmc_3`/`other`) to a full 9-key per-mana-value curve (`mv0`-`mv6`, `mv7Plus`, plus `land`); add §6.1.4 note and worked example updates to match. No production decks had ever saved a `mulligan` block under the old shape, so no migration path is documented. |
 | 1.2.0 | 2026-04-12 | Add `meta.source_url`; add `eval_sequence` scenario type (§6.4.5); add scenario `mode` field (`forced`/`look_for`, §6.4.1a); add card reference type `{"group":...}` (§6.4.1b); add `board_state` field (§6.4.4); add `simulation.eval_scenario_ids`; deprecate `use_best_starting_hand`/`use_perfect_game`; add validation rules 13–16 |
 | 1.1.0 | 2026-03-31 | Add §6.4 Scenarios (hand-based + precondition-based) and §6.5 Forge Simulation Config; extend `deck_rules` with `scenarios[]` and `simulation`; add validation rules 9–12 |
 | 1.0.0 | 2026-03-11 | Initial specification |

@@ -160,23 +160,43 @@
             "properties": {
                 "card_values": {
                     "type": "object",
-                    "description": "Default value per card category used for hand scoring",
+                    "description": "Standard per-mana-value curve used for hand scoring (v1.3.0+; previously 4 CMC-bucketed keys)",
                     "properties": {
                         "land": {
                             "type": "number",
                             "description": "Value assigned to any land card (default: 1.0)"
                         },
-                        "cmc_0_to_2": {
+                        "mv0": {
                             "type": "number",
-                            "description": "Value for non-land cards with CMC 0-2 (default: 0.8)"
+                            "description": "Value for non-land cards with mana value exactly 0 (default: 0.85)"
                         },
-                        "cmc_3": {
+                        "mv1": {
                             "type": "number",
-                            "description": "Value for non-land cards with CMC exactly 3 (default: 0.5)"
+                            "description": "Value for non-land cards with mana value exactly 1 (default: 0.8)"
                         },
-                        "other": {
+                        "mv2": {
                             "type": "number",
-                            "description": "Value for all other non-land cards with CMC 4+ (default: 0.3)"
+                            "description": "Value for non-land cards with mana value exactly 2 (default: 0.75)"
+                        },
+                        "mv3": {
+                            "type": "number",
+                            "description": "Value for non-land cards with mana value exactly 3 (default: 0.6)"
+                        },
+                        "mv4": {
+                            "type": "number",
+                            "description": "Value for non-land cards with mana value exactly 4 (default: 0.45)"
+                        },
+                        "mv5": {
+                            "type": "number",
+                            "description": "Value for non-land cards with mana value exactly 5 (default: 0.4)"
+                        },
+                        "mv6": {
+                            "type": "number",
+                            "description": "Value for non-land cards with mana value exactly 6 (default: 0.35)"
+                        },
+                        "mv7Plus": {
+                            "type": "number",
+                            "description": "Value for non-land cards with mana value 7 or higher (default: 0.3)"
                         }
                     }
                 },

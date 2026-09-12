@@ -5,6 +5,21 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-09-12
+
+### Changed
+- **`commander-decklist-spec.md` §6.1.1 (breaking): `mulligan.card_values` widened from 4
+  CMC-bucketed keys to a full per-mana-value curve.** Was `{land, cmc_0_to_2, cmc_3, other}`;
+  now `{land, mv0, mv1, mv2, mv3, mv4, mv5, mv6, mv7Plus}` — one value per exact mana value
+  0-6 plus a 7+ catch-all, so a deck's standard baseline can distinguish a 1-drop from a
+  2-drop instead of lumping "CMC 0-2" together. `schema/commander-decklist-schema.json` and
+  both worked examples (§6.1.3, the full decklist example, and
+  `examples/commander-decklist.json`) updated to match. §6.1.4 (compact `.dck` inline
+  encoding) is unaffected — it never carried `card_values`. Bumped the companion spec's own
+  version to v1.3.0 (§11 Version History). No production decks had ever saved a `mulligan`
+  block at the time of this change, so no migration path is documented — this is a genuine
+  breaking change for any future consumer of the old 4-key shape, not a compatible extension.
+
 ## [1.6.9] - 2026-09-11
 
 ### Added
