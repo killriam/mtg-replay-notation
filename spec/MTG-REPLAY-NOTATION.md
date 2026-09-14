@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.9.0
+## Format Specification v1.9.1
 
 **Status:** Stable  
 **Published:** August 2026  
@@ -20,6 +20,11 @@
 - **1.7.0** (August 2026): Added `mode` field (`"full_game"` | `"scenario"`), `scenario` definition object, and `rules_clarification` learning marker category
 - **1.8.0** (August 2026): Structured scenario starting hands, first draws, commanders, battlefield, starting life, and top-level forced play sequences
 - **1.9.0** (August 2026): Multiplayer team support (`team` in `meta.players`)
+- **1.9.1** (September 2026): Documentation clarification only, no schema/behavior change —
+  flagged three confirmed discrepancies between this spec and observed production replay output:
+  §7.3's `RESOLVE` and `DRAW` schemas, and §12.3's triggered-ability event ordering. See the
+  ⚠️ **Known Discrepancy** notes at each. Found while investigating a real card-draw/life-gain
+  misattribution bug in a downstream consumer (`new-backend`'s `gameLogsService.ts`).
 
 ---
 
@@ -764,6 +769,17 @@ Automatic game actions and state changes:
 
 - `stack` — Stack object ID being resolved
 
+> ⚠️ **Known Discrepancy (as of v1.9.1):** this schema assumes a consumer can resolve `stack`
+> back to its originating card/controller via an earlier `PUT_ON_STACK` event for the same stack
+> ID. In every production replay inspected to date, `PUT_ON_STACK` is never emitted at all, and
+> `RESOLVE` events instead carry `card`/`card_name` directly (no `stack` field observed):
+> ```json
+> { "type": "RESOLVE", "a": "SYS", "t": "T3.MP1:3", "data": { "card": "c19", "card_name": "Dour Port-Mage" } }
+> ```
+> Consumers should read `card`/`card_name` from `RESOLVE` directly rather than relying on
+> `stack` + a `PUT_ON_STACK` lookup. Not yet reconciled which side (generator or this doc) is
+> the intended source of truth — tracked in the Forge fork's replay change-request process.
+
 ---
 
 #### RESOURCES Event
@@ -877,6 +893,17 @@ Recorded when a card is drawn from the library:
 - `to` — Destination zone (always `<Player>:hand`)
 - `pos` — Position drawn from (`"top"`)
 - `visibility` — Whether the draw is public or private
+
+> ⚠️ **Known Discrepancy (as of v1.9.1):** this schema has no field naming which player drew the
+> card, expecting a consumer to parse the player prefix out of `to` (e.g. `"P1:hand"` → `P1`). In
+> every production replay inspected to date, `DRAW` events instead carry the drawing player
+> directly as `owner`, and omit `obj`/`from`/`to`/`pos` entirely:
+> ```json
+> { "type": "DRAW", "a": "SYS", "t": "T1.DRAW", "data": { "owner": "P1", "card_name": "Some Card" } }
+> ```
+> Consumers should read `owner` directly rather than parsing `to`. Not yet reconciled which side
+> (generator or this doc) is the intended source of truth — tracked in the Forge fork's replay
+> change-request process.
 
 ---
 
@@ -1891,6 +1918,28 @@ Typical sequence:
 6. `RESOLVE` event
 7. Effect events
 
+> ⚠️ **Known Discrepancy (as of v1.9.1):** steps 3 and 6-7 above do not match production replay
+> output. `PUT_ON_STACK` is never emitted (see the `RESOLVE` event schema note in §7.3), and for a
+> *triggered* ability specifically, the effect event(s) — `DRAW`, `LIFE`, etc. — are logged
+> **before** the `RESOLVE` event that closes them out, not after. Verified by tracing several real
+> games turn-by-turn; the observed order is:
+> ```
+> 1. Triggering event occurs
+> 2. TRIGGER event (source = the permanent/card whose ability is triggering)
+> 3. Effect events (DRAW, LIFE, COUNTERS, etc.)
+> 4. RESOLVE event (card = same object as the TRIGGER's source)
+> ```
+> When a permanent has multiple abilities queued (multiple `TRIGGER`s before any of them
+> resolves), each `TRIGGER`/effect/`RESOLVE` triple for that object still nests in FIFO order —
+> but a *different* permanent's newly-triggered ability can resolve to completion first if it was
+> triggered as a side effect of an earlier one resolving, "jumping" a still-pending trigger on the
+> original object. A consumer correlating effects to their cause must account for this ordering,
+> not assume `RESOLVE` always precedes the effect it caused.
+>
+> §12.1 (Casting a Spell) is **not** affected by this — a directly-cast spell with no queued
+> `TRIGGER` of its own has been verified to still resolve in the documented `RESOLVE` → effect
+> order.
+
 ---
 
 ## 13. Validation Rules
@@ -2633,6 +2682,7 @@ Multiplayer team formats (such as Two-Headed Giant or team Commander) are suppor
 | 1.7.0   | 2026-08-18 | Added `mode` field (`"full_game"` vs `"scenario"`), top-level `scenario` object definition, and `rules_clarification` learning marker category |
 | 1.8.0   | 2026-08-18 | Structured scenario starting hands, first draws, commanders, battlefield, starting life, and top-level forced play sequences |
 | 1.9.0   | 2026-08-19 | Added multiplayer team support (`team` in `meta.players`) |
+| 1.9.1   | 2026-09-14 | Documentation clarification only — flagged known discrepancies between this spec and observed production replay output for `RESOLVE`/`DRAW` schemas (§7.3) and triggered-ability event ordering (§12.3) |
 
 ---
 

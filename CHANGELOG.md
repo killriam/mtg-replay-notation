@@ -5,6 +5,32 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-09-14
+
+### Documentation
+- **`MTG-REPLAY-NOTATION.md` — flagged three confirmed spec-vs-reality discrepancies, no schema
+  or behavior change.** Found while root-causing a real card-draw/life-gain misattribution bug in
+  `new-backend`'s `gameLogsService.ts` (a downstream consumer): its original heuristic was built
+  by reading this spec rather than real replay data, and got the event ordering backwards as a
+  direct result.
+  - **§7.3 `RESOLVE` event**: spec says `data: {"stack": "s1"}`, expecting a lookup through an
+    earlier `PUT_ON_STACK` event. Every production replay inspected instead carries
+    `data: {"card": "...", "card_name": "..."}` directly, and `PUT_ON_STACK` is never emitted.
+  - **§7.3 `DRAW` event**: spec says `data: {"obj", "from", "to", "pos", "visibility"}`, expecting
+    the drawing player parsed out of `to` (e.g. `"P1:hand"`). Every production replay inspected
+    instead carries `data: {"owner": "P1", "card_name": "..."}` directly.
+  - **§12.3 Triggered Abilities pattern**: spec documents `TRIGGER → RESOLVE → effect events`.
+    Verified by tracing several real games turn-by-turn that the actual order is
+    `TRIGGER → effect events → RESOLVE` for triggered (not directly-cast) abilities — the effect
+    is logged *before* the `RESOLVE` that closes it, not after. §12.1 (directly-cast spells) is
+    unaffected; verified separately to still follow the documented `RESOLVE → effect` order.
+  - Added ⚠️ **Known Discrepancy** callouts at each location rather than changing the documented
+    schema outright, since it's not yet decided whether the generator or this spec is the
+    intended source of truth for each — tracked via the Forge fork's `FORGE_REPLAY_CHANGE_REQUEST.md`
+    / `FORGE_REPLAY_REMAINING_CHANGES.md` process in `MaMo-Base`. No JSON Schema change:
+    `schema/replay-schema.json`'s `data` field is already an unconstrained object per event type,
+    so nothing there was ever enforcing the (incorrect) documented shape.
+
 ## [1.7.0] - 2026-09-12
 
 ### Changed
