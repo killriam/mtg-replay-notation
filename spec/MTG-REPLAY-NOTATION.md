@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.9.1
+## Format Specification v1.9.2
 
 **Status:** Stable  
 **Published:** August 2026  
@@ -25,6 +25,13 @@
   §7.3's `RESOLVE` and `DRAW` schemas, and §12.3's triggered-ability event ordering. See the
   ⚠️ **Known Discrepancy** notes at each. Found while investigating a real card-draw/life-gain
   misattribution bug in a downstream consumer (`new-backend`'s `gameLogsService.ts`).
+- **1.9.2** (September 2026): §12.3's triggered-ability ordering confirmed **permanent**, not a
+  fixable generator bug — Forge's engine fires a triggered ability's effects as a direct side
+  effect of stack resolution *before* its own `GameEventSpellResolved`/`RESOLVE` fires; reordering
+  would require invasive engine surgery. §12.3's documented sequence corrected to match reality
+  (`TRIGGER → effect → RESOLVE`), with the mechanism and its implication (consumers need a direct
+  `source` field on effect events, not event position, to attribute correctly) explained inline.
+  Still documentation-only — no schema change.
 
 ---
 
@@ -1908,37 +1915,38 @@ Typical sequence:
 
 ### 12.3 Triggered Abilities
 
-Typical sequence:
+Actual sequence (corrected in v1.9.2 — see note below):
 
 1. Triggering event occurs
-2. `TRIGGER` event (System)
-3. `PUT_ON_STACK` event
-4. `CHOOSE` events (if targets/modes needed)
-5. Priority passes
-6. `RESOLVE` event
-7. Effect events
+2. `TRIGGER` event (source = the permanent/card whose ability is triggering)
+3. Effect events (`DRAW`, `LIFE`, `COUNTERS`, etc.)
+4. `RESOLVE` event (`card` = same object as the `TRIGGER`'s `source`)
 
-> ⚠️ **Known Discrepancy (as of v1.9.1):** steps 3 and 6-7 above do not match production replay
-> output. `PUT_ON_STACK` is never emitted (see the `RESOLVE` event schema note in §7.3), and for a
-> *triggered* ability specifically, the effect event(s) — `DRAW`, `LIFE`, etc. — are logged
-> **before** the `RESOLVE` event that closes them out, not after. Verified by tracing several real
-> games turn-by-turn; the observed order is:
-> ```
-> 1. Triggering event occurs
-> 2. TRIGGER event (source = the permanent/card whose ability is triggering)
-> 3. Effect events (DRAW, LIFE, COUNTERS, etc.)
-> 4. RESOLVE event (card = same object as the TRIGGER's source)
-> ```
-> When a permanent has multiple abilities queued (multiple `TRIGGER`s before any of them
-> resolves), each `TRIGGER`/effect/`RESOLVE` triple for that object still nests in FIFO order —
-> but a *different* permanent's newly-triggered ability can resolve to completion first if it was
-> triggered as a side effect of an earlier one resolving, "jumping" a still-pending trigger on the
-> original object. A consumer correlating effects to their cause must account for this ordering,
-> not assume `RESOLVE` always precedes the effect it caused.
+> ⚠️ **Confirmed Architectural Behavior (v1.9.2, supersedes the v1.9.1 "Known Discrepancy"
+> note):** prior to v1.9.2 this section documented `TRIGGER → PUT_ON_STACK → RESOLVE → effect`
+> (i.e. `RESOLVE` before the effect). That was wrong, and — as of v1.9.2 — confirmed **not
+> fixable on the generator side**: Forge's engine fires a triggered ability's effects as a direct
+> side effect of `AbilityUtils.resolve(sa)` inside `MagicStack.resolveStack()`, which runs and
+> completes *before* `game.fireEvent(new GameEventSpellResolved(...))` is called a few lines
+> later. `PUT_ON_STACK` is also never emitted (see the `RESOLVE` event schema note in §7.3).
+> Reordering this would require deferring every effect class's event-firing until after
+> resolution completes — invasive engine surgery, not a formatter change — so this ordering is
+> permanent, not a bug to wait out.
+>
+> **Practical implication:** a consumer must never assume `RESOLVE` precedes the effect it
+> caused for a triggered ability. When a permanent has multiple abilities queued (multiple
+> `TRIGGER`s before any of them resolves), each `TRIGGER`/effect/`RESOLVE` triple for that object
+> still nests in FIFO order — but a *different* permanent's newly-triggered ability can resolve to
+> completion first if it was triggered as a side effect of an earlier one resolving, "jumping" a
+> still-pending trigger on the original object. Correlating an effect to its true cause by event
+> position alone is therefore unreliable in general; a direct `source`/`source_name` field on the
+> effect event itself (tracked as a proposed addition — see the Forge fork's replay
+> change-request process) is the only reliable fix, not a change to this ordering.
 >
 > §12.1 (Casting a Spell) is **not** affected by this — a directly-cast spell with no queued
 > `TRIGGER` of its own has been verified to still resolve in the documented `RESOLVE` → effect
-> order.
+> order, since there's no pre-resolution side-effect path for a plain spell the way there is for a
+> triggered ability's `resolve(sa)` call.
 
 ---
 
@@ -2683,6 +2691,7 @@ Multiplayer team formats (such as Two-Headed Giant or team Commander) are suppor
 | 1.8.0   | 2026-08-18 | Structured scenario starting hands, first draws, commanders, battlefield, starting life, and top-level forced play sequences |
 | 1.9.0   | 2026-08-19 | Added multiplayer team support (`team` in `meta.players`) |
 | 1.9.1   | 2026-09-14 | Documentation clarification only — flagged known discrepancies between this spec and observed production replay output for `RESOLVE`/`DRAW` schemas (§7.3) and triggered-ability event ordering (§12.3) |
+| 1.9.2   | 2026-09-14 | §12.3's triggered-ability ordering confirmed permanent (Forge engine architecture, not fixable) — corrected the documented sequence to match reality and explained why a direct `source` field, not event position, is the real fix |
 
 ---
 

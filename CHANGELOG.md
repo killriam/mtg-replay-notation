@@ -5,6 +5,22 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] - 2026-09-14
+
+### Documentation
+- **`MTG-REPLAY-NOTATION.md` §12.3 — the triggered-ability ordering flagged in 1.9.1 is confirmed
+  permanent, not a fixable generator bug.** Investigated by the Forge fork implementation team per
+  the change-request process in `MaMo-Base`: `MagicStack.resolveStack()` runs
+  `AbilityUtils.resolve(sa)` synchronously — which fires a triggered ability's `DRAW`/`LIFE`/etc.
+  effects as a direct side effect — *before* `game.fireEvent(new GameEventSpellResolved(...))` is
+  called a few lines later. Reordering this would mean deferring every effect class's
+  event-firing until after resolution completes across the whole engine, not a formatter tweak.
+  §12.3's documented "typical sequence" is now corrected to `TRIGGER → effect → RESOLVE` (matching
+  reality) instead of carrying only a discrepancy callout against the old, wrong sequence, with the
+  mechanism and its implication (a direct `source`/`source_name` field on effect events, tracked as
+  a proposed Forge fork change, is the real fix — not anything resolvable by event ordering) spelled
+  out inline. Still documentation-only, no schema change.
+
 ## [1.9.1] - 2026-09-14
 
 ### Documentation
