@@ -1,6 +1,6 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.9.2
+## Format Specification v1.9.3
 
 **Status:** Stable  
 **Published:** August 2026  
@@ -32,6 +32,27 @@
   (`TRIGGER → effect → RESOLVE`), with the mechanism and its implication (consumers need a direct
   `source` field on effect events, not event position, to attribute correctly) explained inline.
   Still documentation-only — no schema change.
+- **1.9.3** (September 2026): Documentation now matches the Forge fork's actual v1.9.2 generator
+  output, which had drifted ahead of this spec:
+  - `LIFE` — documented the real `cause` enum (`"damage_or_loss"`, `"gain"`, `"lifelink"`, not
+    free text as previously written) and the `source`/`source_name` fields it carries for `"gain"`
+    and `"lifelink"`.
+  - `TRIGGER` — documented `granted_by`/`granted_by_name`, present when the triggered ability was
+    granted to its host card by a different card's static ability.
+  - `DRAW` — added the `source`/`source_name` fields introduced alongside `LIFE`'s, and corrected
+    the 1.9.1 discrepancy note: production `DRAW` events do carry `obj`/`from`/`to`/`pos`/
+    `visibility` (that part of the original schema was never wrong) in addition to `owner` and
+    `controller`; only the "consumer must parse the player out of `to`" assumption was wrong.
+  - `RESOLVE` — corrected the 1.9.1 discrepancy note: `stack` is not simply absent from production
+    events, it is present but its value is always the literal string `"unknown"`. The exporter's
+    `logPutOnStack()` (which would populate a real stack-ID map) exists but is never called from
+    any production code path, so `PUT_ON_STACK` is never emitted and no `RESOLVE` ever resolves a
+    real stack ID. Documented as a known-inert field; `card`/`card_name` remain the reliable way
+    to identify what resolved. No generator change made — see `FORGE_REPLAY_REMAINING_CHANGES.md`
+    in the Forge fork's `MaMo-Base` companion repo for why wiring up real stack IDs was judged not
+    worth the cross-engine change for a field no consumer currently needs.
+  - No schema change: `schema/replay-schema.json`'s `data` field is already unconstrained per
+    event type.
 
 ---
 
@@ -720,7 +741,45 @@ Automatic game actions and state changes:
         "player": "P2",
         "delta": -3,
         "new_total": 14,
-        "cause": "combat damage"
+        "cause": "damage_or_loss"
+    }
+}
+```
+
+A life-gain event tags the card responsible when one is identifiable (v1.9.2+):
+
+```json
+{
+    "i": 100,
+    "t": "T8.MP1:1",
+    "a": "SYS",
+    "type": "LIFE",
+    "data": {
+        "player": "P1",
+        "delta": 1,
+        "new_total": 37,
+        "cause": "gain",
+        "source": "c2",
+        "source_name": "Seraph Sanctuary"
+    }
+}
+```
+
+Life gained via lifelink carries a distinct `cause`, with the attacking creature as `source`:
+
+```json
+{
+    "i": 536,
+    "t": "T20.COMBAT",
+    "a": "SYS",
+    "type": "LIFE",
+    "data": {
+        "player": "P1",
+        "delta": 5,
+        "new_total": 25,
+        "cause": "lifelink",
+        "source": "c114",
+        "source_name": "Liesa, Shroud of Dusk"
     }
 }
 ```
@@ -730,7 +789,12 @@ Automatic game actions and state changes:
 - `player` — Player ID
 - `delta` — Change amount (negative = loss, positive = gain)
 - `new_total` — New life total
-- `cause` — Reason for change (card name or description)
+- `cause` — One of `"damage_or_loss"` (any life loss; no single identifiable source today),
+  `"gain"` (a triggered/activated ability's life gain), or `"lifelink"` (life gained from combat
+  damage assignment)
+- `source` — Object ID of the card responsible, when `cause` is `"gain"` or `"lifelink"` and a
+  source is identifiable (v1.9.2+); omitted otherwise
+- `source_name` — Human-readable name of `source` (v1.9.2+)
 
 ---
 
@@ -767,25 +831,24 @@ Automatic game actions and state changes:
     "a": "SYS",
     "type": "RESOLVE",
     "data": {
-        "stack": "s1"
+        "stack": "unknown",
+        "card": "c19",
+        "card_name": "Dour Port-Mage",
+        "fizzled": false
     }
 }
 ```
 
 **Data Fields:**
 
-- `stack` — Stack object ID being resolved
-
-> ⚠️ **Known Discrepancy (as of v1.9.1):** this schema assumes a consumer can resolve `stack`
-> back to its originating card/controller via an earlier `PUT_ON_STACK` event for the same stack
-> ID. In every production replay inspected to date, `PUT_ON_STACK` is never emitted at all, and
-> `RESOLVE` events instead carry `card`/`card_name` directly (no `stack` field observed):
-> ```json
-> { "type": "RESOLVE", "a": "SYS", "t": "T3.MP1:3", "data": { "card": "c19", "card_name": "Dour Port-Mage" } }
-> ```
-> Consumers should read `card`/`card_name` from `RESOLVE` directly rather than relying on
-> `stack` + a `PUT_ON_STACK` lookup. Not yet reconciled which side (generator or this doc) is
-> the intended source of truth — tracked in the Forge fork's replay change-request process.
+- `card` — Object ID of the card/ability resolving
+- `card_name` — Human-readable name of the resolving card
+- `fizzled` — `true` if the spell/ability fizzled (all targets became illegal)
+- `stack` — Stack object ID being resolved. **Currently always the literal string `"unknown"`**:
+  the exporter's `logPutOnStack()` method, which would assign and track a real stack ID, exists
+  but is never called from any production code path, so `PUT_ON_STACK` is never emitted and no
+  stack ID is ever available to resolve. Read `card`/`card_name` directly to identify what
+  resolved; do not rely on `stack`.
 
 ---
 
@@ -887,7 +950,33 @@ Recorded when a card is drawn from the library:
         "from": "P1:library",
         "to": "P1:hand",
         "pos": "top",
-        "visibility": "private"
+        "visibility": "private",
+        "controller": "P1",
+        "owner": "P1"
+    }
+}
+```
+
+When the draw was caused by a resolving ability (rather than a turn-based draw step, which has no
+identifiable cause), the ability's host card is also recorded (v1.9.2+):
+
+```json
+{
+    "i": 100,
+    "t": "T8.MP1:1",
+    "a": "SYS",
+    "type": "DRAW",
+    "data": {
+        "obj": "c40",
+        "card_name": "Some Card",
+        "from": "P1:library",
+        "to": "P1:hand",
+        "pos": "top",
+        "visibility": "private",
+        "controller": "P1",
+        "owner": "P1",
+        "source": "c7",
+        "source_name": "Phyrexian Arena"
     }
 }
 ```
@@ -900,17 +989,12 @@ Recorded when a card is drawn from the library:
 - `to` — Destination zone (always `<Player>:hand`)
 - `pos` — Position drawn from (`"top"`)
 - `visibility` — Whether the draw is public or private
-
-> ⚠️ **Known Discrepancy (as of v1.9.1):** this schema has no field naming which player drew the
-> card, expecting a consumer to parse the player prefix out of `to` (e.g. `"P1:hand"` → `P1`). In
-> every production replay inspected to date, `DRAW` events instead carry the drawing player
-> directly as `owner`, and omit `obj`/`from`/`to`/`pos` entirely:
-> ```json
-> { "type": "DRAW", "a": "SYS", "t": "T1.DRAW", "data": { "owner": "P1", "card_name": "Some Card" } }
-> ```
-> Consumers should read `owner` directly rather than parsing `to`. Not yet reconciled which side
-> (generator or this doc) is the intended source of truth — tracked in the Forge fork's replay
-> change-request process.
+- `controller` — The card's controller
+- `owner` — Player ID who drew the card; read this directly rather than parsing the player prefix
+  out of `to`
+- `source` — Object ID of the host card of the ability that caused this draw, when identifiable
+  (v1.9.2+); omitted for draws with no single identifiable cause (e.g. the mandatory draw step)
+- `source_name` — Human-readable name of `source` (v1.9.2+)
 
 ---
 
@@ -1019,12 +1103,35 @@ Recorded when a triggered ability goes on the stack:
 }
 ```
 
+When the triggered ability was granted to `source` by a different card's static ability (e.g.
+Candlekeep Sage granting a commander a draw trigger), the granting card is also recorded (v1.9.2+):
+
+```json
+{
+    "i": 99,
+    "t": "T8.MP1:1",
+    "a": "SYS",
+    "type": "TRIGGER",
+    "data": {
+        "source": "c2",
+        "source_name": "Seraph Sanctuary",
+        "trigger": "When Seraph Sanctuary enters, you gain 1 life.",
+        "controller": "P1",
+        "granted_by": "c88",
+        "granted_by_name": "Candlekeep Sage"
+    }
+}
+```
+
 **Data Fields:**
 
 - `source` — Card ID of the source permanent
 - `source_name` — Human-readable card name (v1.5.0+)
 - `trigger` — Text of the trigger condition (v1.5.0+)
 - `controller` — Player who controls the triggered ability
+- `granted_by` — Object ID of the card whose static ability granted this trigger to `source`,
+  when different from `source` itself (v1.9.2+); omitted when the trigger is native to `source`
+- `granted_by_name` — Human-readable name of `granted_by` (v1.9.2+)
 
 ---
 
@@ -2692,6 +2799,7 @@ Multiplayer team formats (such as Two-Headed Giant or team Commander) are suppor
 | 1.9.0   | 2026-08-19 | Added multiplayer team support (`team` in `meta.players`) |
 | 1.9.1   | 2026-09-14 | Documentation clarification only — flagged known discrepancies between this spec and observed production replay output for `RESOLVE`/`DRAW` schemas (§7.3) and triggered-ability event ordering (§12.3) |
 | 1.9.2   | 2026-09-14 | §12.3's triggered-ability ordering confirmed permanent (Forge engine architecture, not fixable) — corrected the documented sequence to match reality and explained why a direct `source` field, not event position, is the real fix |
+| 1.9.3   | 2026-09-16 | Documentation caught up to the Forge fork's actual v1.9.2 generator output: added `LIFE`'s real `cause` enum and `source`/`source_name`, `TRIGGER`'s `granted_by`/`granted_by_name`, `DRAW`'s `source`/`source_name`; corrected the 1.9.1 `DRAW` discrepancy note (`obj`/`from`/`to`/`pos`/`visibility` are present, not omitted) and the `RESOLVE` discrepancy note (`stack` is present but always `"unknown"`, not absent) |
 
 ---
 

@@ -5,6 +5,37 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.3] - 2026-09-16
+
+### Documentation
+- **`MTG-REPLAY-NOTATION.md` — documentation caught up to the Forge fork's actual v1.9.2 generator
+  output, which had shipped several fields this spec never documented.** Closes out item #4 of
+  the Forge fork's `FORGE_REPLAY_REMAINING_CHANGES.md` process (the last outstanding item; #1-#3
+  and #5 were the generator changes that shipped in the fork's v1.9.2, this doc just hadn't caught
+  up): decided documentation, not the generator, is the source of truth to reconcile toward, since
+  the generator behavior is what 4+ downstream consumers already read.
+  - §7.3 `LIFE`: documented the real `cause` enum (`"damage_or_loss"` / `"gain"` / `"lifelink"` —
+    the previous "card name or description" text implied free-form text, which was never
+    accurate) and the `source`/`source_name` fields carried for `"gain"` and `"lifelink"`.
+  - §7.3 `TRIGGER`: documented `granted_by`/`granted_by_name`, present when a triggered ability's
+    host card received it from a different card's static ability.
+  - §7.3 `DRAW`: added `source`/`source_name`. Also corrected the 1.9.1 discrepancy note, which
+    turned out to itself be wrong: production `DRAW` events were never missing `obj`/`from`/`to`/
+    `pos`/`visibility` — they carry those *and* `owner`/`controller` together. Only the "consumer
+    must parse the player out of `to`" assumption was actually wrong.
+  - §7.3 `RESOLVE`: corrected the 1.9.1 discrepancy note the same way — `stack` is not absent from
+    production events, it is present and always the literal string `"unknown"`. Root cause: the
+    exporter's `logPutOnStack()` method (which would populate a real stack-ID map consumed by
+    `RESOLVE`) is fully implemented but has zero callers in any production code path — confirmed
+    by instrumenting a real simulation (75/75 `RESOLVE` events carried `stack: "unknown"`, 0
+    `PUT_ON_STACK` events emitted). Documented as inert rather than wired up: no downstream
+    consumer needs a stack ID (`card`/`card_name` already identify what resolved), and threading
+    real stack IDs through every "goes on the stack" code path in Forge's engine (casts,
+    activations, triggers alike) was judged a disproportionate, higher-risk change for a field
+    nothing reads.
+  - No schema change: `schema/replay-schema.json`'s `data` field is already unconstrained per
+    event type, so none of the above required a JSON Schema edit.
+
 ## [1.9.2] - 2026-09-14
 
 ### Documentation
