@@ -5,6 +5,21 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.4] - 2026-09-18
+
+### Changed
+- **`commander-decklist-spec.md` bumped to v1.4.0**: lowered `mulligan.card_values.mv4`-
+  `mv7Plus` defaults from `0.45`/`0.4`/`0.35`/`0.3` to a flat `0.2` (mana value 4+ is worth
+  meaningfully less to see in an opening hand), and added two new scoring rules to §6.1.1 —
+  §6.1.1a (`{X}`-cost cards count `X=2` for curve lookup, scoring only, never the card's real
+  mana value) and §6.1.1b (a land producing 2+ colors gets a 1.0-1.4× value multiplier scaled
+  by how well its colors match the deck's own colored-mana-pip distribution). Updated
+  `schema/commander-decklist-schema.json`'s description strings and both worked examples
+  (the full example in the spec, and `examples/commander-decklist.json`) to match. §6.1.4
+  (compact `.dck` `AiHints=` encoding) still never carries `card_values`, so real Forge games
+  remain unaffected — only the JSON-driven consumers (MaMoFrontend, mamo-sim) apply these
+  rules, same boundary as before.
+
 ## [1.9.3] - 2026-09-16
 
 ### Documentation

@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.3.0
+## Companion Specification v1.4.0
 
 **Status:** Stable
 **Published:** March 2026
@@ -346,6 +346,11 @@ for the current mulligan round.
 > standard baseline can distinguish, say, a 1-drop from a 2-drop rather than lumping
 > "CMC 0–2" together. No production decks had ever saved a `mulligan` block under the
 > old shape at the time of this change, so no migration note is needed for existing data.
+>
+> **Changed in v1.4.0**: `mv4`–`mv7Plus` defaults lowered to a flat `0.2` (previously
+> `0.45`/`0.4`/`0.35`/`0.3`) — mana value 4+ is worth meaningfully less to see in an
+> opening hand. Also added §6.1.1a (X-cost mana-value adjustment) and §6.1.1b (multicolor
+> land bonus), two new rules in "how to compute a hand's total value" below.
 
 ```json
 {
@@ -356,10 +361,10 @@ for the current mulligan round.
             "mv1": 0.8,
             "mv2": 0.75,
             "mv3": 0.6,
-            "mv4": 0.45,
-            "mv5": 0.4,
-            "mv6": 0.35,
-            "mv7Plus": 0.3
+            "mv4": 0.2,
+            "mv5": 0.2,
+            "mv6": 0.2,
+            "mv7Plus": 0.2
         }
     }
 }
@@ -372,10 +377,10 @@ for the current mulligan round.
 | `mv1` | `0.8` | Non-land cards with mana value exactly 1 |
 | `mv2` | `0.75` | Non-land cards with mana value exactly 2 |
 | `mv3` | `0.6` | Non-land cards with mana value exactly 3 |
-| `mv4` | `0.45` | Non-land cards with mana value exactly 4 |
-| `mv5` | `0.4` | Non-land cards with mana value exactly 5 |
-| `mv6` | `0.35` | Non-land cards with mana value exactly 6 |
-| `mv7Plus` | `0.3` | Non-land cards with mana value 7 or higher |
+| `mv4` | `0.2` | Non-land cards with mana value exactly 4 |
+| `mv5` | `0.2` | Non-land cards with mana value exactly 5 |
+| `mv6` | `0.2` | Non-land cards with mana value exactly 6 |
+| `mv7Plus` | `0.2` | Non-land cards with mana value 7 or higher |
 
 All values are floating-point numbers. All 9 keys are required (a consumer should treat
 a missing key as the default shown above, not as an error). Consumers may override
@@ -385,18 +390,67 @@ for the named card.
 
 **How to compute a hand's total value:**
 
-For each card in the opening hand, look up its value from `card_values`: `land` if it's
-a land, else the entry matching its mana value rounded to the nearest integer and
-clamped to `[0, 7]` (so mana value 7 and anything higher both use `mv7Plus`). Sum the
-individual card values. The result is the hand's **total value**.
+For each card in the opening hand, look up its base value from `card_values`: `land` if
+it's a land, else the entry matching its mana value (adjusted per §6.1.1a if the card has
+an `{X}` cost) rounded to the nearest integer and clamped to `[0, 7]` (so mana value 7 and
+anything higher both use `mv7Plus`). If the card is a land producing 2 or more colors,
+multiply its value by §6.1.1b's coverage multiplier. Sum every card's (possibly adjusted)
+value. The result is the hand's **total value**.
 
 **Example:**
-A 7-card hand containing 3 lands (1.0 each), 2 mana rocks with mana value 2 (0.75 each),
-and 2 spells with mana value 5 (0.4 each) has a total value of:
+A 7-card hand containing 3 lands (1.0 each, none multicolor), 2 mana rocks with mana
+value 2 (0.75 each), and 2 spells with mana value 5 (0.2 each) has a total value of:
 
 ```
-3×1.0 + 2×0.75 + 2×0.4 = 3.0 + 1.5 + 0.8 = 5.3
+3×1.0 + 2×0.75 + 2×0.2 = 3.0 + 1.5 + 0.4 = 4.9
 ```
+
+##### 6.1.1a Mana Value Adjustment for `{X}` Costs
+
+*(New in v1.4.0.)* A non-land card whose mana cost includes one or more `{X}` symbols
+(e.g. `{X}{R}`, Fireball) has its mana value increased by 2 **for this curve lookup
+only**, following the common convention of treating `X = 2` as a rough average. This
+does **not** change the card's real mana value anywhere else a consumer might use it
+(casting cost, curve statistics, etc.) — it's a scoring-only adjustment applied just
+before the §6.1.1 bucket lookup. Cards with more than one `{X}` symbol are **not**
+double-adjusted — the +2 applies once per card regardless of how many `{X}` symbols its
+cost contains, matching every existing implementation of this rule.
+
+Fireball (`{X}{R}`, real mana value 1 by convention) is therefore scored at effective
+mana value 3 (`mv3`), not `mv1`.
+
+##### 6.1.1b Multicolor Land Bonus
+
+*(New in v1.4.0.)* A land producing 2 or more colors (mono-color and colorless lands are
+unaffected — their value is exactly `card_values.land`, no multiplier) has its `land`
+value multiplied by a factor from **1.0 to 1.4**, scaled by how well the colors it
+produces match the deck's own colored-mana-pip distribution. The idea: a land fixing for
+colors the deck's spells actually need heavily is more valuable to open with than one
+fixing for a barely-used splash color.
+
+**Step 1 — compute the deck's colored-pip weights** (once per deck, not per hand): for
+each of the 5 colors, sum the number of that color's mana symbols across every **non-land**
+card in the deck (each card's symbols counted once per physical copy — i.e. weighted by
+however many copies of that card the deck runs). Divide each color's total by the grand
+total across all 5 colors to get that color's *weight* (0.0–1.0, summing to 1.0 across
+all five). If the deck has no colored pips at all, every weight is 0 and no land ever
+receives a bonus.
+
+**Step 2 — score a land producing colors `C`:** if `|C| < 2`, the multiplier is `1.0`
+(no bonus). Otherwise, sum the deck's pip-weight for each color in `C` (call this
+*coverage*, capped at `1.0` since a land covering every color used could otherwise
+exceed it due to floating-point rounding), and compute:
+
+```
+multiplier = 1.0 + 0.4 × coverage
+```
+
+**Example:** A deck's non-land cards use only blue and black mana, in a 60/40 split
+(`pipWeight.U = 0.6`, `pipWeight.B = 0.4`, all others `0`). A dual land producing both
+blue and black has `coverage = 0.6 + 0.4 = 1.0`, so `multiplier = 1.0 + 0.4×1.0 = 1.4` —
+the maximum bonus, since it perfectly covers the deck's only two colors. A land producing
+blue and red instead has `coverage = 0.6 + 0 = 0.6`, so `multiplier = 1.0 + 0.4×0.6 = 1.24`
+— a smaller bonus, since red isn't used by any non-land card in this deck at all.
 
 #### 6.1.2 Mulligan Thresholds
 
@@ -461,10 +515,10 @@ be declared in the mulligan section:
             "mv1": 0.8,
             "mv2": 0.75,
             "mv3": 0.6,
-            "mv4": 0.45,
-            "mv5": 0.4,
-            "mv6": 0.35,
-            "mv7Plus": 0.3
+            "mv4": 0.2,
+            "mv5": 0.2,
+            "mv6": 0.2,
+            "mv7Plus": 0.2
         },
         "card_overrides": [
             {
@@ -525,12 +579,15 @@ this compact form (falls back to the JSON `DecklistSpec$` route instead).
 
 **Interpretation is identical to §6.1.2's decision procedure**, substituting the tokens above
 for the JSON fields, and falling back to §6.1.1's default `card_values` curve
-(`land: 1.0, mv0: 0.85, mv1: 0.8, mv2: 0.75, mv3: 0.6, mv4: 0.45, mv5: 0.4, mv6: 0.35,
-mv7Plus: 0.3`) and this spec's default thresholds (`0:3.5, 1:3.0, 2:2.5, 3:2.0`) for any
-round not listed:
+(`land: 1.0, mv0: 0.85, mv1: 0.8, mv2: 0.75, mv3: 0.6, mv4: 0.2, mv5: 0.2, mv6: 0.2,
+mv7Plus: 0.2`) and this spec's default thresholds (`0:3.5, 1:3.0, 2:2.5, 3:2.0`) for any
+round not listed. §6.1.1a (X-cost mana-value adjustment) and §6.1.1b (multicolor land
+bonus) are still part of this same fallback procedure — this compact form only omits the
+*override* mechanism for `card_values` itself, not the rest of §6.1.1's scoring rules:
 
 1. Score each card in the current hand: an override value if one matches its name, else the
-   default curve value for land / its exact mana value (clamped to `mv7Plus` at 7+).
+   default curve value for land / its exact mana value (clamped to `mv7Plus` at 7+, and
+   adjusted per §6.1.1a/§6.1.1b as applicable).
 2. Sum every card's value → hand score.
 3. Find the `MulliganThreshold$` entry for the current round (0 = initial 7-card hand); if
    none exists for that round, use the default listed above.
@@ -1140,10 +1197,10 @@ inline decklist over an external lookup.
                 "mv1": 0.8,
                 "mv2": 0.75,
                 "mv3": 0.6,
-                "mv4": 0.45,
-                "mv5": 0.4,
-                "mv6": 0.35,
-                "mv7Plus": 0.3
+                "mv4": 0.2,
+                "mv5": 0.2,
+                "mv6": 0.2,
+                "mv7Plus": 0.2
             },
             "card_overrides": [
                 {
@@ -1311,6 +1368,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.4.0 | 2026-09-18 | Lower `mulligan.card_values.mv4`-`mv7Plus` defaults from `0.45`/`0.4`/`0.35`/`0.3` to a flat `0.2` (mana value 4+ is worth meaningfully less to see in an opening hand); add §6.1.1a (`{X}`-cost cards count `X=2` for curve lookup, scoring only — never the card's real mana value) and §6.1.1b (a land producing 2+ colors gets a 1.0-1.4× value multiplier scaled by how well its colors match the deck's own colored-pip distribution). Both are new scoring rules within "how to compute a hand's total value," not new top-level fields — no schema shape change beyond the `card_values` default-number updates. |
 | 1.3.0 | 2026-09-12 | **Breaking:** `mulligan.card_values` (§6.1.1) widened from 4 CMC-bucketed keys (`cmc_0_to_2`/`cmc_3`/`other`) to a full 9-key per-mana-value curve (`mv0`-`mv6`, `mv7Plus`, plus `land`); add §6.1.4 note and worked example updates to match. No production decks had ever saved a `mulligan` block under the old shape, so no migration path is documented. |
 | 1.2.0 | 2026-04-12 | Add `meta.source_url`; add `eval_sequence` scenario type (§6.4.5); add scenario `mode` field (`forced`/`look_for`, §6.4.1a); add card reference type `{"group":...}` (§6.4.1b); add `board_state` field (§6.4.4); add `simulation.eval_scenario_ids`; deprecate `use_best_starting_hand`/`use_perfect_game`; add validation rules 13–16 |
 | 1.1.0 | 2026-03-31 | Add §6.4 Scenarios (hand-based + precondition-based) and §6.5 Forge Simulation Config; extend `deck_rules` with `scenarios[]` and `simulation`; add validation rules 9–12 |

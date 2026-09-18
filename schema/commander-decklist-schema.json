@@ -160,11 +160,11 @@
             "properties": {
                 "card_values": {
                     "type": "object",
-                    "description": "Standard per-mana-value curve used for hand scoring (v1.3.0+; previously 4 CMC-bucketed keys)",
+                    "description": "Standard per-mana-value curve used for hand scoring (v1.3.0+; previously 4 CMC-bucketed keys). See spec §6.1.1a for the X-cost adjustment and §6.1.1b for the multicolor land bonus applied on top of these base values.",
                     "properties": {
                         "land": {
                             "type": "number",
-                            "description": "Value assigned to any land card (default: 1.0)"
+                            "description": "Value assigned to any land card (default: 1.0). Multiplied by 1.0-1.4 for a land producing 2+ colors — see spec §6.1.1b."
                         },
                         "mv0": {
                             "type": "number",
@@ -184,19 +184,19 @@
                         },
                         "mv4": {
                             "type": "number",
-                            "description": "Value for non-land cards with mana value exactly 4 (default: 0.45)"
+                            "description": "Value for non-land cards with mana value exactly 4 (default: 0.2, capped v1.4.0+)"
                         },
                         "mv5": {
                             "type": "number",
-                            "description": "Value for non-land cards with mana value exactly 5 (default: 0.4)"
+                            "description": "Value for non-land cards with mana value exactly 5 (default: 0.2, capped v1.4.0+)"
                         },
                         "mv6": {
                             "type": "number",
-                            "description": "Value for non-land cards with mana value exactly 6 (default: 0.35)"
+                            "description": "Value for non-land cards with mana value exactly 6 (default: 0.2, capped v1.4.0+)"
                         },
                         "mv7Plus": {
                             "type": "number",
-                            "description": "Value for non-land cards with mana value 7 or higher (default: 0.3)"
+                            "description": "Value for non-land cards with mana value 7 or higher (default: 0.2, capped v1.4.0+). {X}-cost cards count X=2 for this lookup — see spec §6.1.1a."
                         }
                     }
                 },
