@@ -196,6 +196,14 @@ sequenceDiagram
     - `Zone_Graveyard` & `Zone_Exile`
     - `Zone_Stack` (Center board for currently resolving spells)
 
+### 3.2.1 Optical Barcode Scanning & Physical Card Identification
+- **8×18 Data Matrix (ECC200) Detection**:
+  - Top-down playmat camera scans detect the compact 8×18 rectangular Data Matrix badge printed in the card's bottom footer margin (`y=872..910`).
+  - Decodes the 24-bit payload (`[deck_id: 8-bit][card_in_deck: 8-bit][player_id: 4-bit][placeholder: 4-bit]`) serialized as a 6-character hex string (e.g. `"2A0F00"`).
+- **Direct Card & Owner Resolution**:
+  - Maps `card_in_deck` directly into the deck's steady slot allocation table (`slot_numbers`), achieving $100\%$ card identity confidence without visual art ambiguity or OCR error.
+  - Resolves player ownership dynamically via match lobby deck assignment (`player_id = 0`) or directly via pre-baked seat (`player_id = 1..14`).
+
 ### 3.3 Companion Telemetry Stream
 - Real-time event timestamps sent from `mamo-companion`:
   - `TURN_CHANGED` (turn number, active player index)
@@ -269,6 +277,7 @@ The Natural Language Action Extractor converts transcribed utterances into candi
 - **Object Detection**: Detects rectangular card tokens, card orientation ($0^\circ$ untapped vs. $90^\circ$ tapped).
 - **Facedown & Token Resolution**: Recognizes facedown cards on the battlefield; associates them with secret identity once revealed by audio or hand state.
 - **Card Art Identification**: Feature matching (ORB/SIFT/CNN embedding) against the known card art pool of the loaded decklists.
+- **Optical Barcode Ground-Truth Recognition**: When proxy or printed cards with 8×18 Data Matrix barcodes are detected in the footer, the vision module bypasses heuristic feature matching and emits deterministic card identity with confidence `1.0`, cross-referencing the deck's `slot_numbers` table.
 
 ---
 

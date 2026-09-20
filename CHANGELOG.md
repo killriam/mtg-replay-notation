@@ -5,6 +5,29 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.5] - 2026-09-20
+
+### Added
+- **Steady Card Slot Allocation System (§3.1.2 in `MTG-REPLAY-NOTATION.md`)**:
+  Specifies deterministic slot number (`1..100` / `1..255`) allocation across deck revisions:
+  - Commander is assigned Slot #1 (Partner/Background #2).
+  - Main deck cards assigned in order of addition (`revisionadded ASC`).
+  - Card cuts free slot numbers into an available pool without shifting remaining cards down, preserving physical sleeve stability and proxy card validity.
+  - Card additions claim the lowest available freed slot number from the pool, or $\max(\text{occupied}) + 1$.
+  - Re-added cards claim a fresh lowest freed slot.
+  - Multi-copy cards (basic lands) receive distinct individual slots (e.g. 12 Islands = `[81..92]`).
+  - Revision snapshots copy `slot_numbers` forward automatically.
+  - Deterministic lazy backfill via historical revision replay from Rev 1.
+- **`commander-decklist-spec.md` bumped to v1.6.0**:
+  - Added `meta.optical_deck_id` (integer `1..255`) for 8-bit deck identification.
+  - Added `CardEntry.slot_numbers` (integer array) and `CardEntry.optical_ids` (6-hex string array).
+  - Added §5.4 (Steady Sleeve Slot Numbers & Optical Barcodes) documenting the 24-bit Data Matrix encoding (`[deck: 8b][slot: 8b][player: 4b][0: 4b]`), footer margin placement (`y=872..910`), and MaMo proxy XML export schema (`<card><name>...</name><slot>...</slot><optical_id>...</optical_id></card>`).
+- **`commander-decklist-schema.json`**:
+  - Added `optical_deck_id` to `DecklistMeta`.
+  - Added `slot_numbers` and `optical_ids` to `DecklistCard`.
+- **`live-game-capture-spec.md`**:
+  - Added §3.2.1 (Optical Barcode Scanning & Physical Card Identification) and updated §5.2 (Optical Barcode Ground-Truth Recognition) for direct card identity and player owner resolution.
+
 ## [1.9.4] - 2026-09-18
 
 ### Changed

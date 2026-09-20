@@ -59,6 +59,12 @@
                     "type": "string",
                     "description": "Display name for the deck"
                 },
+                "optical_deck_id": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 255,
+                    "description": "Unique 8-bit deck identifier (1..255) for optical computer vision and Data Matrix barcode proxy tracking"
+                },
                 "format": {
                     "type": "string",
                     "const": "Commander",
@@ -122,6 +128,23 @@
                     "type": "array",
                     "items": { "type": "string" },
                     "description": "Additional mechanic roles or synergy labels"
+                },
+                "slot_numbers": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 255
+                    },
+                    "description": "1-indexed steady physical sleeve numbers (1..100 / 1..255) assigned to copies of this card across deck revisions"
+                },
+                "optical_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Fa-f]{6}$"
+                    },
+                    "description": "6-character hex strings encoding 24-bit Data Matrix payloads (<DECK:2><CARD:2><PLAYER:1><FLAGS:1>) for each physical copy"
                 },
                 "note": {
                     "type": "string",

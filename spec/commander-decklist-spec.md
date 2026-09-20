@@ -1,9 +1,9 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.5.1
+## Companion Specification v1.6.0
 
 **Status:** Stable
-**Published:** March 2026
+**Published:** September 2026
 **Purpose:** Standardized JSON format for describing Commander format decklists,
 including deck composition, card mechanic roles, mulligan evaluation rules,
 and combo/anti-synergy declarations.
@@ -68,6 +68,7 @@ A decklist file contains:
     "meta": {
         "deck_id": "abc123-uuid",
         "deck_name": "Atraxa Superfriends",
+        "optical_deck_id": 42,
         "format": "Commander",
         "colors": ["W", "U", "B", "G"],
         "created": "2026-03-11",
@@ -85,6 +86,7 @@ A decklist file contains:
 |-------|------|----------|-------------|
 | `deck_id` | string | No | Unique identifier for this deck (UUID recommended) |
 | `deck_name` | string | **Yes** | Display name for the deck |
+| `optical_deck_id` | integer | No | Unique 8-bit deck identifier (`1 – 255`) used for optical computer vision and Data Matrix proxy tracking |
 | `format` | string | **Yes** | Must be `"Commander"` |
 | `colors` | array | No | Color identity as WUBRG letters (e.g., `["W","U","B","G"]`) |
 | `created` | string | No | Creation date (ISO 8601 date, e.g., `"2026-03-11"`) |
@@ -209,7 +211,9 @@ Every card across all four sections uses the following structure:
     "edition": "RNA",
     "collector_number": "22",
     "primary_mechanic": "ramp",
-    "additional_mechanics": ["card-draw", "synergy"]
+    "additional_mechanics": ["card-draw", "synergy"],
+    "slot_numbers": [15],
+    "optical_ids": ["2A0F00"]
 }
 ```
 
@@ -223,6 +227,8 @@ Every card across all four sections uses the following structure:
 | `collector_number` | string | **Yes** | Collector number within the edition (e.g., `"22"`, `"263a"`) |
 | `primary_mechanic` | string | **Yes** | Main strategic role this card fills in the deck (see Section 5.2) |
 | `additional_mechanics` | array | No | Additional roles or synergies (array of strings from Section 5.2) |
+| `slot_numbers` | array | No | 1-indexed steady physical sleeve numbers (`1 – 100` / `1 – 255`) allocated across deck revisions (e.g. `[15]` or `[81, 82, 83]`, see Section 5.4) |
+| `optical_ids` | array | No | 6-character hex strings encoding 24-bit Data Matrix payloads (`"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`) matching each copy |
 | `note` | string | No | Free-text note about this card's role or budget considerations |
 
 ### 5.2 Edition and Collector Number
@@ -312,6 +318,81 @@ unknown values gracefully.
 | `multicolor` | Rewards casting or controlling multicolored spells |
 | `enchantress` | Triggers off enchantments entering or abilities |
 | `spellslinger` | Triggers off instants and sorceries |
+
+### 5.4 Steady Sleeve Slot Numbers & Optical Barcodes
+
+To support physical proxy printing and camera-based tabletop tracking, cards in a decklist carry **steady sleeve slot numbers** (`slot_numbers`) and **optical barcode identifiers** (`optical_ids`).
+
+#### 5.4.1 Steady Slot Allocation Lifecycle
+
+In physical tabletop play, cards are sleeved and sorted into numbers `1..100`. When a deck builder cuts or adds a few cards in a new revision, re-numbering all 100 cards would require re-sleeving the entire physical deck. The slot allocation system guarantees stability across deck revisions:
+
+1. **Ordering & Revision 1 Baseline:**
+   - The primary Commander is assigned **Slot #1**.
+   - Partner Commander, Background, or Companion (if present) is assigned **Slot #2**.
+   - Main deck cards receive slots `2..N` (or `3..N`) in chronological order of addition (`revisionadded ASC`).
+2. **Card Cuts ("Out"):**
+   - When a card is removed from the deck, its slot number is released into the deck's available freed slot pool.
+   - Remaining cards **do not shift down**. Physical sleeves and existing proxy cards remain valid.
+3. **Card Additions ("In"):**
+   - When a new card is added, it claims the **lowest available freed slot number** from the pool.
+   - If no freed slots exist, it claims $\max(\text{occupied}) + 1$.
+4. **Card Re-additions ("Out and in again"):**
+   - If a card was removed in an earlier revision and later added back, it receives a **fresh number** from the currently available pool rather than reclaiming its old historical slot.
+5. **Multi-Copy Cards (Basic Lands):**
+   - Each physical copy receives a distinct, unique slot number. For example, 12 copies of *Island* receive `[81, 82, ..., 92]`.
+   - Decreasing copy count frees the highest copy slots first.
+   - Increasing copy count allocates new lowest available free slots.
+6. **Revision Snapshotting & Backfill:**
+   - Forking a new deck revision automatically copies forward the `slot_numbers` array.
+   - Legacy decks lacking explicit slot numbers are deterministically backfilled by replaying revision history from Revision 1.
+
+#### 5.4.2 24-Bit Optical Data Matrix Barcodes
+
+Each card instance encodes its identity into a compact **24-bit (3-byte) Optical Identifier** printed as an **8×18 rectangular Data Matrix (ECC200)** barcode in the card's bottom footer margin:
+
+**Payload Structure:**
+- `deck_id` (8 bits, `0 – 255`): Unique deck identifier (`meta.optical_deck_id`).
+- `card_in_deck` (8 bits, `0 – 255`): 1-indexed slot number matching `slot_numbers[i]`.
+- `player_id` (4 bits, `0 – 15`): Optional player seat assignment:
+  - `0x0` (`0`): **Dynamic resolution** for casual Commander and playgroups where decks are shared or swapped. The scanner resolves player ownership from the match lobby's deck-to-seat assignment.
+  - `0x1 – 0xE` (`1 – 14`): **Fixed seat resolution** for tournament, gauntlet, or dedicated personal decks.
+- `placeholder` (4 bits, `0x0`): Reserved for future flags.
+
+**Hex Serialization:**  
+Serialized as a 6-character uppercase hex string: `"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"` (e.g. `"2A0F00"` = Deck 42, Slot 15, Dynamic Player).
+
+**Physical Placement:**  
+The 8×18 Data Matrix badge measures ~7.5 mm × 3.6 mm (with a 1-module white quiet zone and rounded pill border) and is positioned in the card's bottom black footer margin (`y=872..910` on a 672×936 master template), strictly below the text box border to prevent overlapping rules or flavor text.
+
+#### 5.4.3 Proxy XML Export Schema
+
+MaMo's "Print Proxies" dialog emits an XML document consumable by automated printing scripts (`proxy-printing/simple_multi_page.py` for Scribus and `proxy-printing/generate_a4_pdf.py` for 9-card A4 sheets):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- MaMo proxy print export — 2 unique cards, 3 total copies -->
+<cardpacks>
+  <printoptions format="cardstock" gap="0" cut-marks="false" watermark="false" skip-basic-lands="false" />
+  <fronts>
+    <card>
+      <name>Sol Ring_normal.jpg</name>
+      <slot>15</slot>
+      <optical_id>2A0F00</optical_id>
+    </card>
+    <card>
+      <name>Island_normal.jpg</name>
+      <slot>81</slot>
+      <optical_id>2A5100</optical_id>
+    </card>
+    <card>
+      <name>Island_normal.jpg</name>
+      <slot>82</slot>
+      <optical_id>2A5200</optical_id>
+    </card>
+  </fronts>
+</cardpacks>
+```
 
 ---
 
@@ -1491,6 +1572,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.6.0 | 2026-09-20 | Add `meta.optical_deck_id` (§3.1), `CardEntry.slot_numbers` and `CardEntry.optical_ids` (§5.1), and §5.4 (Steady Sleeve Slot Numbers & Optical Barcodes). Documents the steady slot allocation lifecycle across deck revisions, 24-bit Data Matrix barcode serialization, and MaMo proxy XML export schema. |
 | 1.5.1 | 2026-09-20 | Document §6.1.6 (Starting Hand Quality) — no schema change. Clarifies, for completeness, that MaMoFrontend's informational (non-keep/mulligan-deciding) Mana Curve/tier-ranking/synergy-chain bonuses are **not** offered as `mulligan` JSON fields, because two of the three (tier ranking, synergy chains) depend on MaMo-internal data (per-card Mechanic Graph tier assignments, inter-group enabling relationships) that this notation's `mechanic_groups` (a flat string-key list) has no field for at all. |
 | 1.5.0 | 2026-09-20 | Add `mulligan.mana_base_min`/`mana_base_max` (§6.1.5) and validation rule 17 — a second, independent keep/mulligan model (Mana Base Band) that scores only lands and cheap mana-producing cards against a fixed band, with two separate verdicts (`Playable` vs. `Good AI hand`). Additive: does not remove or reshape any existing field, and does not extend to the compact `.dck` `AiHints=` encoding (§6.1.4), which is unaffected and still governs real Forge games via §§6.1.1–6.1.3 alone. |
 | 1.4.0 | 2026-09-18 | Lower `mulligan.card_values.mv4`-`mv7Plus` defaults from `0.45`/`0.4`/`0.35`/`0.3` to a flat `0.2` (mana value 4+ is worth meaningfully less to see in an opening hand); add §6.1.1a (`{X}`-cost cards count `X=2` for curve lookup, scoring only — never the card's real mana value) and §6.1.1b (a land producing 2+ colors gets a 1.0-1.4× value multiplier scaled by how well its colors match the deck's own colored-pip distribution). Both are new scoring rules within "how to compute a hand's total value," not new top-level fields — no schema shape change beyond the `card_values` default-number updates. |

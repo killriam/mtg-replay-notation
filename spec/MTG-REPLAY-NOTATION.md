@@ -1,12 +1,14 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.9.4
+## Format Specification v1.9.5
 
 **Status:** Stable  
 **Published:** September 2026  
 **Purpose:** Human-readable specification for understanding MTG game replay files
 
 **Version History:**
+- **1.9.5** (September 2026): Added Steady Card Slot Allocation specification (§3.1.2)
+  for deterministic proxy sleeve stability and historical revision lifecycle tracking.
 - **1.9.4** (September 2026): Added Physical Card Optical Identifier specification (§3.1.1)
   for tabletop computer vision and proxy tracking using 8×18 Data Matrix (ECC200) codes with
   optional player ID resolution (dynamic playgroup setup vs. fixed legacy format assignment).
@@ -189,6 +191,31 @@ The 4-bit `player_id` field is explicitly designed to be **optional** to accommo
 
 **Physical Placement:**  
 The 8×18 Data Matrix badge measures ~7.5 mm × 3.6 mm (with a 1-module white quiet zone) and is positioned in the card's bottom black footer margin (the area traditionally reserved for the rare holofoil security stamp), placed strictly below the text box bottom border line (`y >= 872` on a 672×936 master template) to guarantee zero intrusion into card rules or flavor text.
+
+#### 3.1.2 Steady Card Slot Allocation System (Revision Stability)
+
+To support tabletop physical proxy printing and camera-based computer vision tracking without requiring players to re-sleeve or re-label 100 cards whenever minor deck edits occur, the `card_in_deck` value (`1..100` or `1..255`) is governed by a **steady slot allocation lifecycle**:
+
+1. **Ordering & Revision 1 Baseline:**
+   - Primary Commander is assigned **Slot #1**.
+   - Partner Commander, Background, or Companion (if present) is assigned **Slot #2**.
+   - Main deck cards are assigned slots `2..N` (or `3..N`) in chronological order of addition (`revisionadded ASC`).
+2. **Card Removal ("Out"):**
+   - When a card is cut, its slot number is released back into the deck's available slot pool.
+   - Remaining cards **do not shift down**. Physical sleeves, proxy card printouts, and existing optical IDs remain valid.
+3. **Card Addition ("In"):**
+   - When a new card is added, it claims the **lowest available freed slot number** from the pool.
+   - If no freed slots exist, it claims $\max(\text{occupied}) + 1$.
+4. **Card Re-addition ("Out and in again"):**
+   - If a card was removed in an earlier revision and later added back, it receives a **fresh number** from the currently available pool rather than reclaiming its historical slot.
+5. **Multi-Copy Cards (Basic Lands):**
+   - Each physical copy receives a distinct, unique slot number (e.g., 12 copies of *Island* receive `[81, 82, ..., 92]`).
+   - Decreasing copy count frees the highest copy slots first.
+   - Increasing copy count allocates new lowest available free slots.
+6. **Zero-Maintenance Revision Snapshotting:**
+   - When creating a new deck revision, the allocated `slot_numbers` are preserved and copied forward verbatim into the new revision snapshot.
+7. **Deterministic Historical Backfill:**
+   - Legacy decks lacking explicit slot numbers are deterministically backfilled by replaying deck modifications sequentially from Revision 1 to the current revision.
 
 ---
 
@@ -2844,6 +2871,8 @@ Multiplayer team formats (such as Two-Headed Giant or team Commander) are suppor
 | 1.9.1   | 2026-09-14 | Documentation clarification only — flagged known discrepancies between this spec and observed production replay output for `RESOLVE`/`DRAW` schemas (§7.3) and triggered-ability event ordering (§12.3) |
 | 1.9.2   | 2026-09-14 | §12.3's triggered-ability ordering confirmed permanent (Forge engine architecture, not fixable) — corrected the documented sequence to match reality and explained why a direct `source` field, not event position, is the real fix |
 | 1.9.3   | 2026-09-16 | Documentation caught up to the Forge fork's actual v1.9.2 generator output: added `LIFE`'s real `cause` enum and `source`/`source_name`, `TRIGGER`'s `granted_by`/`granted_by_name`, `DRAW`'s `source`/`source_name`; corrected the 1.9.1 `DRAW` discrepancy note (`obj`/`from`/`to`/`pos`/`visibility` are present, not omitted) and the `RESOLVE` discrepancy note (`stack` is present but always `"unknown"`, not absent) |
+| 1.9.4   | 2026-09-18 | Added Physical Card Optical Identifier specification (§3.1.1) for tabletop computer vision and proxy tracking using 8×18 Data Matrix (ECC200) codes with optional player ID resolution |
+| 1.9.5   | 2026-09-20 | Added Steady Card Slot Allocation specification (§3.1.2) for deterministic proxy sleeve stability and historical revision lifecycle tracking |
 
 ---
 
