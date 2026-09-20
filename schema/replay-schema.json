@@ -422,6 +422,11 @@
                 },
                 "notes": {
                     "type": "object"
+                },
+                "optical_id": {
+                    "type": "string",
+                    "pattern": "^[0-9A-Fa-f]{6}$",
+                    "description": "Optional 24-bit physical card identifier (6 hex chars) from an 8x18 Data Matrix stamp (v1.9.4+). Encodes deck_id (8-bit), card_in_deck (8-bit), optional player_id (4-bit), and placeholder (4-bit)."
                 }
             }
         },
@@ -652,8 +657,32 @@
                     "minimum": 0,
                     "description": "Current turn number"
                 },
-                "scenario": {
-                    "$ref": "#/definitions/ScenarioDefinition"
+                "phase": {
+                    "type": "string",
+                    "description": "Current phase"
+                },
+                "active_player": {
+                    "type": "string",
+                    "description": "Who is the active player"
+                },
+                "life_totals": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "Life totals for all players"
+                },
+                "cards_in_hand": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "Hand sizes per player"
+                },
+                "battlefield_count": {
+                    "type": "object",
+                    "additionalProperties": { "type": "integer" },
+                    "description": "Number of permanents per player"
+                },
+                "stack_empty": {
+                    "type": "boolean",
+                    "description": "Whether the stack is empty"
                 }
             }
         },
@@ -682,36 +711,6 @@
                 "notes": {
                     "type": "string",
                     "description": "Additional context or rationales for the scenario"
-                }
-            }
-        },
-        "PerTurnSummary": {
-                "phase": {
-                    "type": "string",
-                    "description": "Current phase"
-                },
-                "active_player": {
-                    "type": "string",
-                    "description": "Who is the active player"
-                },
-                "life_totals": {
-                    "type": "object",
-                    "additionalProperties": { "type": "integer" },
-                    "description": "Life totals for all players"
-                },
-                "cards_in_hand": {
-                    "type": "object",
-                    "additionalProperties": { "type": "integer" },
-                    "description": "Hand sizes per player"
-                },
-                "battlefield_count": {
-                    "type": "object",
-                    "additionalProperties": { "type": "integer" },
-                    "description": "Number of permanents per player"
-                },
-                "stack_empty": {
-                    "type": "boolean",
-                    "description": "Whether the stack is empty"
                 }
             }
         },

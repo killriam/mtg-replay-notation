@@ -1,12 +1,15 @@
 # MTG Replay & Learning Notation
 
-## Format Specification v1.9.3
+## Format Specification v1.9.4
 
 **Status:** Stable  
-**Published:** August 2026  
+**Published:** September 2026  
 **Purpose:** Human-readable specification for understanding MTG game replay files
 
 **Version History:**
+- **1.9.4** (September 2026): Added Physical Card Optical Identifier specification (§3.1.1)
+  for tabletop computer vision and proxy tracking using 8×18 Data Matrix (ECC200) codes with
+  optional player ID resolution (dynamic playgroup setup vs. fixed legacy format assignment).
 - **1.0.0** (December 2025): Initial specification
 - **1.1.0** (February 2026): Added `win_condition`, `conceded`, `deck_name`, `deck_hash` algorithm, `RESOURCES` event, `card_name` in events
 - **1.2.0** (February 2026): Added `game_start` section (toss winner, starting player, play/draw choice), enhanced `MULLIGAN` event with full details
@@ -145,6 +148,47 @@ Every game object has a unique, immutable identifier:
 | Player         | `P` + number | `P1`, `P2` | Player in the game       |
 
 **Important:** IDs never change. A card keeps its ID when moving between zones.
+
+#### 3.1.1 Physical Card Optical Identifier (Proxy / Tabletop CV)
+
+When capturing physical card games via optical computer vision (e.g. overhead webcam or camera scanner tracking proxy/printed cards), physical card instances bridge into Replay Notation card objects (`c<N>`) using a compact **24-bit (3-byte) Optical Identifier** printed as an **8×18 Data Matrix (ECC200)** barcode in the card's bottom footer margin.
+
+**24-Bit Payload Structure:**
+
+| Field | Bit Length | Range | Description |
+| :--- | :--- | :--- | :--- |
+| `deck_id` | 8 bits | `0 – 255` | Unique deck identifier within the game session / player collection |
+| `card_in_deck` | 8 bits | `0 – 255` | 1-indexed card position within the deck's registered card list |
+| `player_id` | 4 bits | `0 – 15` | **Optional Player Identifier** (see Player Resolution below) |
+| `placeholder` | 4 bits | `0 – 15` | Reserved for format flags / future expansion (`0x0`) |
+
+**Hex Representation:**  
+The payload is serialized as a 6-character uppercase hex string: `"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"` (e.g., `"2A0F00"` or `"2A0F10"`).
+
+**Player ID Resolution (Dynamic vs. Fixed):**
+
+The 4-bit `player_id` field is explicitly designed to be **optional** to accommodate different play environments:
+
+1. **Dynamic / Playgroup Session Setup (`player_id = 0x0` / `0`):**
+   - **Use Case:** Casual play, Commander (EDH), and playgroup environments where players swap, share, or draft decks between sessions.
+   - **Mechanism:** The physical card is printed with `player_id = 0`. At game setup, the playgroup / match lobby maps player seats (`P1`, `P2`, ...) to their chosen `deck_id` in `meta.players`. When the optical scanner detects a card with `(deck_id, card_in_deck)`, the replay telemetry engine automatically resolves the owner/controller seat from the session's deck assignment.
+2. **Fixed Seat / Legacy Formats (`player_id = 0x1 – 0xE` / `1 – 14`):**
+   - **Use Case:** Legacy formats, structured 1v1 tournament kits, gauntlet sets, or personal decks permanently bound to a designated player seat.
+   - **Mechanism:** The player seat (`P1` through `P14`) is pre-baked directly onto the card. The camera scanner immediately resolves the player without requiring session-level deck mapping.
+3. **`player_id = 0xF` (`15`):** Reserved.
+
+**Mapping to Replay Game Objects:**
+
+```
+[Camera Scan: "2A0F00"] 
+  → deck_id=42, card_in_deck=15, player_id=0 (dynamic)
+  → session lookup: P1 is playing Deck #42
+  → decklist lookup: Deck #42, Card #15 is "Longshot, Rebel Bowman"
+  → Replay Notation object: "c15" { "card_ref": "Longshot, Rebel Bowman", "owner": "P1", "optical_id": "2A0F00" }
+```
+
+**Physical Placement:**  
+The 8×18 Data Matrix badge measures ~7.5 mm × 3.6 mm (with a 1-module white quiet zone) and is positioned in the card's bottom black footer margin (the area traditionally reserved for the rare holofoil security stamp), placed strictly below the text box bottom border line (`y >= 872` on a 672×936 master template) to guarantee zero intrusion into card rules or flavor text.
 
 ---
 
