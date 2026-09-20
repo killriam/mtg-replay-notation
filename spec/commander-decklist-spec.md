@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.5.0
+## Companion Specification v1.5.1
 
 **Status:** Stable
 **Published:** March 2026
@@ -697,6 +697,30 @@ true non-mana utility land (e.g. Maze of Ith) from a normal untapped land, so th
 category scores `1.0` there instead of the `0.0` a fuller implementation (like
 `MulliganValueEditor.tsx`'s) gives it — a disclosed, not-yet-fixed gap in that one consumer,
 not a schema ambiguity.
+
+#### 6.1.6 Starting Hand Quality (informational — not a schema field, most of it can't be one)
+
+*(Documented for completeness, not added as a new field.)* MaMoFrontend's Mulligan Decision tab
+also computes a **Starting Hand Quality** number, shown alongside Mana Base (§6.1.5) but purely
+informational — it never affects the keep/mulligan decision. Unlike every other rule in §6.1,
+it is **not** exposed as a `mulligan` JSON field here, because two of its three components
+depend on data this notation format does not model at all:
+
+| Component | Formula | Representable in this schema? |
+|-----------|---------|-------------------------------|
+| Mana Curve bonus | Flat `+0.5`, all-or-nothing, if the hand has a non-land permanent (creature/artifact/enchantment/planeswalker) at mana value exactly 1, another at 2, another at 3, and another at 4 | **Yes** — uses only each card's type line and mana value, both already in §5 |
+| Tier ranking bonus | `+0.40` / `+0.25` / `+0.10` per hand card assigned Mechanic Graph tier S / A / B (best tier across every mechanic group it's in; unranked/lower tiers add `+0`) | **No** — tier assignment (`S`/`A`/`B`/`C`/`D`/`E`/`F`/`Maybe`) is a property of MaMo's internal `CardsDeckMechanicAssignment` table, with no equivalent field anywhere in this notation. §6.4's `mechanic_groups` (used by scenario zone requirements) are plain string keys — no per-card tier, no per-group rank |
+| Deckmechanic synergy bonus | `+0.15` per mechanic group the hand can chain into (holds that group's card *and* a card from a group that enables it), capped at `+0.6` | **No** — requires the enabler→dependent relationship between mechanic groups (MaMo's internal `synergyDetails.enablingFormations`). This notation's `mechanic_groups` (§6.4.2/§6.4.3, and the schema's `mechanic_groups: string[]`) are a flat, unordered list of keys — no dependency/enabling-formation concept exists here at all |
+
+Because 2 of the 3 components can only be computed by reaching into MaMo's own database (not
+from a standalone `mtg-commander-decklist` JSON file), Starting Hand Quality stays a
+MaMoFrontend-only display rather than a documented `mulligan` field — adding just the Mana
+Curve third of it as a JSON field without the other two would misrepresent the real feature.
+A future version of this notation that grows a per-card tier field and an inter-group
+dependency field on `mechanic_groups` could reopen this; not proposed here.
+
+**Full description:** `MaMoFrontend/specs/playbook.spec.md` AC-MULL-001i,
+`MaMoFrontend/specs/evaluation.spec.md` §Mulligan Decision.
 
 ### 6.2 Combos
 
@@ -1467,6 +1491,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.5.1 | 2026-09-20 | Document §6.1.6 (Starting Hand Quality) — no schema change. Clarifies, for completeness, that MaMoFrontend's informational (non-keep/mulligan-deciding) Mana Curve/tier-ranking/synergy-chain bonuses are **not** offered as `mulligan` JSON fields, because two of the three (tier ranking, synergy chains) depend on MaMo-internal data (per-card Mechanic Graph tier assignments, inter-group enabling relationships) that this notation's `mechanic_groups` (a flat string-key list) has no field for at all. |
 | 1.5.0 | 2026-09-20 | Add `mulligan.mana_base_min`/`mana_base_max` (§6.1.5) and validation rule 17 — a second, independent keep/mulligan model (Mana Base Band) that scores only lands and cheap mana-producing cards against a fixed band, with two separate verdicts (`Playable` vs. `Good AI hand`). Additive: does not remove or reshape any existing field, and does not extend to the compact `.dck` `AiHints=` encoding (§6.1.4), which is unaffected and still governs real Forge games via §§6.1.1–6.1.3 alone. |
 | 1.4.0 | 2026-09-18 | Lower `mulligan.card_values.mv4`-`mv7Plus` defaults from `0.45`/`0.4`/`0.35`/`0.3` to a flat `0.2` (mana value 4+ is worth meaningfully less to see in an opening hand); add §6.1.1a (`{X}`-cost cards count `X=2` for curve lookup, scoring only — never the card's real mana value) and §6.1.1b (a land producing 2+ colors gets a 1.0-1.4× value multiplier scaled by how well its colors match the deck's own colored-pip distribution). Both are new scoring rules within "how to compute a hand's total value," not new top-level fields — no schema shape change beyond the `card_values` default-number updates. |
 | 1.3.0 | 2026-09-12 | **Breaking:** `mulligan.card_values` (§6.1.1) widened from 4 CMC-bucketed keys (`cmc_0_to_2`/`cmc_3`/`other`) to a full 9-key per-mana-value curve (`mv0`-`mv6`, `mv7Plus`, plus `land`); add §6.1.4 note and worked example updates to match. No production decks had ever saved a `mulligan` block under the old shape, so no migration path is documented. |
