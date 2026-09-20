@@ -552,7 +552,9 @@
                     "min_value": 2.0,
                     "description": "Keep 4-card hand if total value is at least 2.0"
                 }
-            ]
+            ],
+            "mana_base_min": 3,
+            "mana_base_max": 4
         },
         "combos": [
             {

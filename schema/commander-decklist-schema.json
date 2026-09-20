@@ -156,8 +156,18 @@
         },
         "MulliganRule": {
             "type": "object",
-            "description": "Mulligan scoring model: assign a value to each card and compare total to a threshold",
+            "description": "Mulligan scoring model: assign a value to each card and compare total to a threshold. As of v1.5.0, a consumer may instead (or additionally) implement the independent Mana Base Band model (mana_base_min/mana_base_max, spec §6.1.5) for the actual keep/mulligan decision — see those two fields' descriptions below.",
             "properties": {
+                "mana_base_min": {
+                    "type": "number",
+                    "default": 3,
+                    "description": "Mana Base Band lower bound (v1.5.0+, spec §6.1.5): below this total (lands + cheap mana-producing cards only, scored independently of card_values), the hand is not Playable. Additive — does not replace card_values/thresholds, which remain the only model the compact .dck AiHints= export (spec §6.1.4) understands."
+                },
+                "mana_base_max": {
+                    "type": "number",
+                    "default": 4,
+                    "description": "Mana Base Band upper bound (v1.5.0+, spec §6.1.5): a hand scoring above this is not a Good AI hand (too much mana) even though it may still be Playable. This stricter min<=score<=max check is mamo-sim's actual automated opening-hand-redraw criteria."
+                },
                 "card_values": {
                     "type": "object",
                     "description": "Standard per-mana-value curve used for hand scoring (v1.3.0+; previously 4 CMC-bucketed keys). See spec §6.1.1a for the X-cost adjustment and §6.1.1b for the multicolor land bonus applied on top of these base values.",

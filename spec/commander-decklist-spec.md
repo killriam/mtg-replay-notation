@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.4.0
+## Companion Specification v1.5.0
 
 **Status:** Stable
 **Published:** March 2026
@@ -335,9 +335,20 @@ and used by replay analysis and coaching tools.
 ### 6.1 Mulligan Rule
 
 The mulligan rule defines how to score an opening hand to decide whether to keep it
-or take a mulligan. Each card in the opening hand is assigned a **value** based on its
-type and exact mana value, and the total hand value is compared against a **threshold**
-for the current mulligan round.
+or take a mulligan.
+
+> **Two coexisting scoring models as of v1.5.0.** §§6.1.1–6.1.4 below define the original
+> model: each card in the opening hand is assigned a **value** based on its type and exact
+> mana value, and the total hand value is compared against a **threshold** for the current
+> mulligan round. This remains the *only* model the compact `.dck` `AiHints=` encoding
+> (§6.1.4) understands, and is still what real Forge games decide mulligans with.
+> §6.1.5 (**Mana Base Band**, new in v1.5.0) defines a second, independent model — a
+> formula-only score of just a hand's lands and cheap mana-producing cards, compared
+> against a fixed band — that a consumer may implement *instead of* §§6.1.1–6.1.3's
+> curve-and-threshold decision for the JSON form of this rule. A consumer should treat
+> `mana_base_min`/`mana_base_max` (§6.1.5), if present, as authoritative for the
+> keep/mulligan decision, and `card_values`/`thresholds` as informational/legacy in that
+> case — see §6.1.5 for exactly which consumers currently do this.
 
 #### 6.1.1 Card Values
 
@@ -602,6 +613,90 @@ should fall back to its own default mulligan behavior rather than treating this 
 `forge.deck.DeckRulesConfig.fromInlineHints()` / `forge.ai.ComputerUtil.wantMulligan()` via
 `forge.ai.mulligan.DecklistMulliganEvaluator` (reader) — see `forge-integration-guide.md`
 §12.5.5 for the surrounding `AiHints`/`DecklistSpecPath` mechanism this token family extends.
+**Unaffected by §6.1.5** — Mana Base does not extend to this compact form; real Forge games
+played from a `.dck` file are decided by §§6.1.1–6.1.3 exactly as before, regardless of what a
+deck's JSON `mulligan` block says about Mana Base.
+
+#### 6.1.5 Mana Base Band
+
+*(New in v1.5.0.)* A second, independent way to decide keep-or-mulligan, alongside §§6.1.1–6.1.4
+rather than replacing them in the schema. Where §6.1.1's `card_values` scores *every* card in the
+hand by a curve, Mana Base scores **only** lands and cheap mana-producing cards — every other
+card, however good, contributes nothing — and compares the sum against a fixed band instead of a
+per-round threshold table.
+
+```json
+{
+    "mulligan": {
+        "mana_base_min": 3,
+        "mana_base_max": 4
+    }
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `mana_base_min` | number | No (default `3`) | Below this total, the hand has too little mana |
+| `mana_base_max` | number | No (default `4`) | Above this total, the hand has too much mana (see "Two verdicts" below) |
+
+**Per-card Mana Base value** (independent of `card_values` — does not use the §6.1.1 curve, is
+**not** affected by `card_overrides` §6.1.3 at all, and is unaffected by the §6.1.1a/§6.1.1b
+adjustments):
+
+| Card | Value |
+|------|-------|
+| Basic land | `1.0` |
+| True non-mana utility land (produces no mana at all, e.g. Maze of Ith, Dark Depths) | `0.0` |
+| Non-basic land producing exactly one color, enters tapped or under a condition (rules text matches `enters tapped unless`, `unless you`, `you may pay...{`, `enters tapped`, or `enters the battlefield tapped`) | `0.8` |
+| Non-basic land producing exactly one color, otherwise | `1.0` |
+| Land producing 2 or more colors | `1.0` to `1.4`, via the **same** coverage formula as §6.1.1b |
+| Non-land card that produces mana, mana value `0` | `1.0` |
+| Non-land card that produces mana, mana value `1` | `0.9` |
+| Non-land card that produces mana, mana value `2` | `0.6` |
+| Anything else (mana value 3+ mana producers; any card with no mana ability at all) | `0.0` |
+
+**Decision procedure:**
+
+1. For each card in the hand, look up its Mana Base value from the table above (lands via the
+   §6.1.1b coverage formula where applicable; non-lands by mana value).
+2. Sum every card's value → the hand's **Mana Base score**.
+3. **Two verdicts, for two different audiences:**
+   - **Playable** (`score >= mana_base_min`) — the human-facing "can this hand function at all"
+     check. Does not penalize a mana-flooded hand.
+   - **Good AI hand** (`mana_base_min <= score <= mana_base_max`) — the stricter, double-sided
+     check used when a program needs to pick or redraw an opening hand *for* a simulated
+     player, so it lands neither mana-screwed nor mana-flooded. A consumer implementing
+     automated hand selection (not just showing a keep/mulligan pill to a human) should use
+     this check, not the single-sided one above.
+
+**Example:** A 7-card hand containing 3 basic lands (`1.0` each), 1 dual land covering 100% of
+the deck's colored pips (`1.4`), 1 mana rock at mana value 1 (`0.9`), and 2 non-mana spells
+(`0.0` each) has a Mana Base score of:
+
+```
+3×1.0 + 1×1.4 + 1×0.9 + 2×0.0 = 3.0 + 1.4 + 0.9 = 5.3
+```
+
+Against the default band (`3`–`4`), this hand is **Playable** (`5.3 >= 3`) but **not a Good AI
+hand** (`5.3 > 4` — too much mana for automated hand selection to prefer, even though a human
+would likely still keep it).
+
+**Which consumers implement this (as of v1.5.0):** MaMoFrontend's Mulligan Decision tab
+(`MulliganValueEditor.tsx`) computes and displays both verdicts; `mamo-sim`'s "Simulate AI"
+batch-statistics tool uses the **Good AI hand** check as its actual opening-hand-redraw
+criteria (`game_engine.rs`'s `run_game`, reached via `new-backend`'s
+`GET /api/simulation/deck-input/:deckId` → `mamo-Connector`'s `encode_deck_input` →
+mamo-sim's wire format). **Does not reach real Forge games** — those are decided by §6.1.1's
+curve via the compact `.dck` encoding (§6.1.4) exactly as before; Mana Base has no `.dck`
+representation. A consumer with no opinion on Mana Base should simply ignore
+`mana_base_min`/`mana_base_max` and use §6.1.1's total-value model unchanged — their presence
+in a `mulligan` block is never required.
+
+**Known limitation:** mamo-sim's per-card wire encoding has no bit available to distinguish a
+true non-mana utility land (e.g. Maze of Ith) from a normal untapped land, so that one card
+category scores `1.0` there instead of the `0.0` a fuller implementation (like
+`MulliganValueEditor.tsx`'s) gives it — a disclosed, not-yet-fixed gap in that one consumer,
+not a schema ambiguity.
 
 ### 6.2 Combos
 
@@ -1073,6 +1168,8 @@ inline decklist over an external lookup.
 16. **`mode`** must be `"forced"` or `"look_for"` when present. In `forced` mode,
     all group references in `opening_hand` and `turns[].drawn` must be resolvable to
     at least one concrete card in the deck list.
+17. **`mulligan.mana_base_min` must be ≤ `mulligan.mana_base_max`** when both are present
+    (§6.1.5).
 
 ---
 
@@ -1239,7 +1336,9 @@ inline decklist over an external lookup.
                     "min_value": 2.0,
                     "description": "Keep 4-card hand if total value is at least 2.0"
                 }
-            ]
+            ],
+            "mana_base_min": 3,
+            "mana_base_max": 4
         },
         "combos": [
             {
@@ -1368,6 +1467,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.5.0 | 2026-09-20 | Add `mulligan.mana_base_min`/`mana_base_max` (§6.1.5) and validation rule 17 — a second, independent keep/mulligan model (Mana Base Band) that scores only lands and cheap mana-producing cards against a fixed band, with two separate verdicts (`Playable` vs. `Good AI hand`). Additive: does not remove or reshape any existing field, and does not extend to the compact `.dck` `AiHints=` encoding (§6.1.4), which is unaffected and still governs real Forge games via §§6.1.1–6.1.3 alone. |
 | 1.4.0 | 2026-09-18 | Lower `mulligan.card_values.mv4`-`mv7Plus` defaults from `0.45`/`0.4`/`0.35`/`0.3` to a flat `0.2` (mana value 4+ is worth meaningfully less to see in an opening hand); add §6.1.1a (`{X}`-cost cards count `X=2` for curve lookup, scoring only — never the card's real mana value) and §6.1.1b (a land producing 2+ colors gets a 1.0-1.4× value multiplier scaled by how well its colors match the deck's own colored-pip distribution). Both are new scoring rules within "how to compute a hand's total value," not new top-level fields — no schema shape change beyond the `card_values` default-number updates. |
 | 1.3.0 | 2026-09-12 | **Breaking:** `mulligan.card_values` (§6.1.1) widened from 4 CMC-bucketed keys (`cmc_0_to_2`/`cmc_3`/`other`) to a full 9-key per-mana-value curve (`mv0`-`mv6`, `mv7Plus`, plus `land`); add §6.1.4 note and worked example updates to match. No production decks had ever saved a `mulligan` block under the old shape, so no migration path is documented. |
 | 1.2.0 | 2026-04-12 | Add `meta.source_url`; add `eval_sequence` scenario type (§6.4.5); add scenario `mode` field (`forced`/`look_for`, §6.4.1a); add card reference type `{"group":...}` (§6.4.1b); add `board_state` field (§6.4.4); add `simulation.eval_scenario_ids`; deprecate `use_best_starting_hand`/`use_perfect_game`; add validation rules 13–16 |
