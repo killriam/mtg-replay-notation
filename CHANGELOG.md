@@ -5,6 +5,23 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.6] - 2026-09-21
+
+### Changed
+- **Streamlined Optical Card Recognition Architecture (§3.1.1 in `MTG-REPLAY-NOTATION.md`)**:
+  - Decoupled physical card markers into a 3-tier architecture:
+    1. **Deck ID Card:** QR code encoding permanent deck URL (`https://mamo.app/deck/<deck_id>`) scanned once at pre-game setup ("latest is greatest" active revision model).
+    2. **Player ID Card:** QR/Data Matrix identifying player seat.
+    3. **Card Footer Markers:** 8×18 Data Matrix encoding strictly steady slot numbers (`1..100` / `0..255`) with maximum ECC200 error correction redundancy.
+  - Minimalist badge design: strictly Data Matrix and `#Slot` number (e.g. `[ 8x18 ] #15`) with zero card names, set codes, or descriptive elements.
+  - Lower footer placement: shifted to `y = 892..930` on 672×936 master template, placing markers strictly below copyright and rules text with zero obstruction.
+  - Maintained backward compatibility for 24-bit 6-hex decoders.
+- **`commander-decklist-spec.md` bumped to v1.6.1**:
+  - Updated §5.4.2 to document streamlined slot-only Data Matrix architecture and lower margin placement (`y = 892..930`).
+  - Updated `optical_ids` in `CardEntry` and `commander-decklist-schema.json` to accept numeric slot strings (`"15"`) and legacy 6-hex strings.
+- **`live-game-capture-spec.md`**:
+  - Updated §3.2.1 to reflect decoupled slot-only vision recognition and setup-stage Deck ID resolution.
+
 ## [1.9.5] - 2026-09-20
 
 ### Added

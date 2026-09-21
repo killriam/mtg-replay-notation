@@ -153,44 +153,35 @@ Every game object has a unique, immutable identifier:
 
 #### 3.1.1 Physical Card Optical Identifier (Proxy / Tabletop CV)
 
-When capturing physical card games via optical computer vision (e.g. overhead webcam or camera scanner tracking proxy/printed cards), physical card instances bridge into Replay Notation card objects (`c<N>`) using a compact **24-bit (3-byte) Optical Identifier** printed as an **8×18 Data Matrix (ECC200)** barcode in the card's bottom footer margin.
+When capturing physical card games via optical computer vision (e.g. overhead webcam, companion app camera, or scanner tracking proxy/printed cards), physical card instances bridge into Replay Notation card objects (`c<N>`) using a decoupled **Optical Identifier** system:
 
-**24-Bit Payload Structure:**
+1. **Pre-Game Table Setup (Deck & Player Binding):**
+   - **Physical Deck ID Card:** Large QR code encoding the permanent Deck URL (`https://mamo.app/deck/<deck_id>`). Scanned once before the game to load the active revision manifest and bind the deck to a player seat ("latest is greatest" revision model).
+   - **Physical Player ID Card:** QR or Data Matrix card encoding player identity (`/u/<username>`), establishing seat assignment.
+2. **In-Game Card Telemetry (Slot-Only 8×18 Data Matrix):**
+   - Each physical card badge encodes **strictly the card's steady slot number ($1\dots 100$ / $0\dots 255$)** (e.g. `"1"`, `"15"`, `"100"`).
+   - The badge contains only the 8×18 Data Matrix (ECC200) barcode and the human-readable `#Slot` number (e.g. `[ 8x18 ] #15`). Contains no card names, set codes, or descriptive elements.
 
-| Field | Bit Length | Range | Description |
-| :--- | :--- | :--- | :--- |
-| `deck_id` | 8 bits | `0 – 255` | Unique deck identifier within the game session / player collection |
-| `card_in_deck` | 8 bits | `0 – 255` | 1-indexed card position within the deck's registered card list |
-| `player_id` | 4 bits | `0 – 15` | **Optional Player Identifier** (see Player Resolution below) |
-| `placeholder` | 4 bits | `0 – 15` | Reserved for format flags / future expansion (`0x0`) |
+**Payload Structures:**
 
-**Hex Representation:**  
-The payload is serialized as a 6-character uppercase hex string: `"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"` (e.g., `"2A0F00"` or `"2A0F10"`).
-
-**Player ID Resolution (Dynamic vs. Fixed):**
-
-The 4-bit `player_id` field is explicitly designed to be **optional** to accommodate different play environments:
-
-1. **Dynamic / Playgroup Session Setup (`player_id = 0x0` / `0`):**
-   - **Use Case:** Casual play, Commander (EDH), and playgroup environments where players swap, share, or draft decks between sessions.
-   - **Mechanism:** The physical card is printed with `player_id = 0`. At game setup, the playgroup / match lobby maps player seats (`P1`, `P2`, ...) to their chosen `deck_id` in `meta.players`. When the optical scanner detects a card with `(deck_id, card_in_deck)`, the replay telemetry engine automatically resolves the owner/controller seat from the session's deck assignment.
-2. **Fixed Seat / Legacy Formats (`player_id = 0x1 – 0xE` / `1 – 14`):**
-   - **Use Case:** Legacy formats, structured 1v1 tournament kits, gauntlet sets, or personal decks permanently bound to a designated player seat.
-   - **Mechanism:** The player seat (`P1` through `P14`) is pre-baked directly onto the card. The camera scanner immediately resolves the player without requiring session-level deck mapping.
-3. **`player_id = 0xF` (`15`):** Reserved.
+- **Primary (Slot-Only String):** Serialized as an integer string (`"1"` to `"100"` / `"255"`).
+  - Maximizes ECC200 error correction redundancy by minimizing payload size.
+  - Decouples card markers entirely from deck ID and player seat.
+  - Aligns vision barcode detection and companion app manual keypad entry 1:1.
+- **Legacy Compatibility (24-bit 6-Hex):** Decoders also support the 24-bit 3-byte payload serialized as a 6-character hex string: `"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"` (e.g. `"2A0F00"`), extracting the middle byte (`0x0F` = slot 15).
 
 **Mapping to Replay Game Objects:**
 
 ```
-[Camera Scan: "2A0F00"] 
-  → deck_id=42, card_in_deck=15, player_id=0 (dynamic)
-  → session lookup: P1 is playing Deck #42
-  → decklist lookup: Deck #42, Card #15 is "Longshot, Rebel Bowman"
-  → Replay Notation object: "c15" { "card_ref": "Longshot, Rebel Bowman", "owner": "P1", "optical_id": "2A0F00" }
+[Camera Scan: "15" (or legacy "2A0F00")]
+  → card_in_deck = 15
+  → session lookup: Seat P1 is bound to Deck #42 (from pre-game Deck ID scan)
+  → decklist lookup: Deck #42, Slot #15 is "Sol Ring"
+  → Replay Notation object: "c15" { "card_ref": "Sol Ring", "owner": "P1", "optical_id": "15" }
 ```
 
-**Physical Placement:**  
-The 8×18 Data Matrix badge measures ~7.5 mm × 3.6 mm (with a 1-module white quiet zone) and is positioned in the card's bottom black footer margin (the area traditionally reserved for the rare holofoil security stamp), placed strictly below the text box bottom border line (`y >= 872` on a 672×936 master template) to guarantee zero intrusion into card rules or flavor text.
+**Physical Placement & Clearance:**  
+The 8×18 Data Matrix badge measures ~11.8 mm × 3.6 mm (including quiet zone and `#Slot` label). It is positioned in the card's lower black margin (`y = 892..930` on a 672×936 master template). This positions the badge strictly below the copyright notice (`™ & © ... Wizards of the Coast`, `y = 876..888`), ensuring 100% of card rules text, flavor text, artist credits, and copyright notices remain completely unobstructed.
 
 #### 3.1.2 Steady Card Slot Allocation System (Revision Stability)
 
@@ -2873,6 +2864,7 @@ Multiplayer team formats (such as Two-Headed Giant or team Commander) are suppor
 | 1.9.3   | 2026-09-16 | Documentation caught up to the Forge fork's actual v1.9.2 generator output: added `LIFE`'s real `cause` enum and `source`/`source_name`, `TRIGGER`'s `granted_by`/`granted_by_name`, `DRAW`'s `source`/`source_name`; corrected the 1.9.1 `DRAW` discrepancy note (`obj`/`from`/`to`/`pos`/`visibility` are present, not omitted) and the `RESOLVE` discrepancy note (`stack` is present but always `"unknown"`, not absent) |
 | 1.9.4   | 2026-09-18 | Added Physical Card Optical Identifier specification (§3.1.1) for tabletop computer vision and proxy tracking using 8×18 Data Matrix (ECC200) codes with optional player ID resolution |
 | 1.9.5   | 2026-09-20 | Added Steady Card Slot Allocation specification (§3.1.2) for deterministic proxy sleeve stability and historical revision lifecycle tracking |
+| 1.9.6   | 2026-09-21 | Streamlined physical card optical tracking (§3.1.1): decoupled slot-only Data Matrix architecture (numeric slot string payload 1..100/255), badge shifted to lower black margin (y=892..930) below copyright line, and physical Deck ID QR cards for table setup |
 
 ---
 

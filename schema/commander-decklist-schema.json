@@ -142,9 +142,9 @@
                     "type": "array",
                     "items": {
                         "type": "string",
-                        "pattern": "^[0-9A-Fa-f]{6}$"
+                        "pattern": "^([0-9]{1,3}|[0-9A-Fa-f]{6})$"
                     },
-                    "description": "6-character hex strings encoding 24-bit Data Matrix payloads (<DECK:2><CARD:2><PLAYER:1><FLAGS:1>) for each physical copy"
+                    "description": "Compact optical identifiers encoding Data Matrix payloads (e.g. numeric slot string \"15\" or legacy 6-char hex <DECK:2><CARD:2><PLAYER:1><FLAGS:1>) for each physical copy"
                 },
                 "note": {
                     "type": "string",

@@ -1,6 +1,6 @@
 # Commander Decklist Notation
 
-## Companion Specification v1.6.0
+## Companion Specification v1.6.1
 
 **Status:** Stable
 **Published:** September 2026
@@ -228,7 +228,7 @@ Every card across all four sections uses the following structure:
 | `primary_mechanic` | string | **Yes** | Main strategic role this card fills in the deck (see Section 5.2) |
 | `additional_mechanics` | array | No | Additional roles or synergies (array of strings from Section 5.2) |
 | `slot_numbers` | array | No | 1-indexed steady physical sleeve numbers (`1 – 100` / `1 – 255`) allocated across deck revisions (e.g. `[15]` or `[81, 82, 83]`, see Section 5.4) |
-| `optical_ids` | array | No | 6-character hex strings encoding 24-bit Data Matrix payloads (`"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`) matching each copy |
+| `optical_ids` | array | No | Compact optical identifiers encoding Data Matrix payloads for each copy (e.g. numeric slot string `"15"`, or legacy 6-hex `"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`) |
 | `note` | string | No | Free-text note about this card's role or budget considerations |
 
 ### 5.2 Edition and Collector Number
@@ -347,23 +347,24 @@ In physical tabletop play, cards are sleeved and sorted into numbers `1..100`. W
    - Forking a new deck revision automatically copies forward the `slot_numbers` array.
    - Legacy decks lacking explicit slot numbers are deterministically backfilled by replaying revision history from Revision 1.
 
-#### 5.4.2 24-Bit Optical Data Matrix Barcodes
+#### 5.4.2 Streamlined Optical Data Matrix Barcodes (Slot-Only Architecture)
 
-Each card instance encodes its identity into a compact **24-bit (3-byte) Optical Identifier** printed as an **8×18 rectangular Data Matrix (ECC200)** barcode in the card's bottom footer margin:
+Card optical recognition uses a decoupled 3-tier architecture separating table setup from in-game card telemetry:
+1. **Physical Deck ID Card:** Large QR code encoding the permanent Deck URL (`https://mamo.app/deck/<deck_id>`). Scanned once at pre-game table setup to load the active revision manifest and bind the deck to a player seat.
+2. **Physical Player ID Card:** QR or Data Matrix card encoding player identity (`/u/<username>`), establishing seat assignment.
+3. **In-Game Card Footer Markers:** Compact **8×18 rectangular Data Matrix (ECC200)** barcode encoding **strictly the card's steady slot number ($1\dots 100$ / $0\dots 255$)**.
 
-**Payload Structure:**
-- `deck_id` (8 bits, `0 – 255`): Unique deck identifier (`meta.optical_deck_id`).
-- `card_in_deck` (8 bits, `0 – 255`): 1-indexed slot number matching `slot_numbers[i]`.
-- `player_id` (4 bits, `0 – 15`): Optional player seat assignment:
-  - `0x0` (`0`): **Dynamic resolution** for casual Commander and playgroups where decks are shared or swapped. The scanner resolves player ownership from the match lobby's deck-to-seat assignment.
-  - `0x1 – 0xE` (`1 – 14`): **Fixed seat resolution** for tournament, gauntlet, or dedicated personal decks.
-- `placeholder` (4 bits, `0x0`): Reserved for future flags.
+**Payload Structure & Serialization:**
+- **Primary (Slot-Only):** Serialized directly as an integer string (`"1"` to `"100"` / `"255"`) or single-byte value (`0x01` to `0xFF`).
+  - Maximizes ECC200 error correction redundancy.
+  - Eliminates all print-time deck/player configuration.
+  - Aligns camera barcode scan output and companion manual numeric keypad input 1:1.
+- **Legacy Compatibility (24-bit 6-hex):** Decoders also accept legacy 6-character hex strings (`"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`, e.g. `"2A0F00"`), extracting the middle byte (`0x0F` = slot 15).
 
-**Hex Serialization:**  
-Serialized as a 6-character uppercase hex string: `"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"` (e.g. `"2A0F00"` = Deck 42, Slot 15, Dynamic Player).
-
-**Physical Placement:**  
-The 8×18 Data Matrix badge measures ~7.5 mm × 3.6 mm (with a 1-module white quiet zone and rounded pill border) and is positioned in the card's bottom black footer margin (`y=872..910` on a 672×936 master template), strictly below the text box border to prevent overlapping rules or flavor text.
+**Minimalist Badge & Physical Placement:**
+- **Content:** Contains strictly the 8×18 Data Matrix barcode and the human-readable `#Slot` number (e.g. `[ 8x18 ] #15`). Contains no card names, set codes, or descriptive elements.
+- **Dimensions:** Measures ~11.8 mm wide × 3.6 mm high (pill badge with rounded corners).
+- **Lower Footer Placement:** Positioned in the card's lower black margin (`y = 892..930` on a 672×936 master template). This places the badge strictly below the copyright notice (`™ & © ... Wizards of the Coast`, `y = 876..888`), ensuring 100% of rules text, artist credit, and copyright information remain unobstructed.
 
 #### 5.4.3 Proxy XML Export Schema
 
@@ -1572,6 +1573,7 @@ inline decklist over an external lookup.
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.6.1 | 2026-09-21 | Streamline optical card recognition to a decoupled slot-only Data Matrix architecture (§5.4.2). Individual card markers encode strictly the steady slot number (1..100 / 0..255) with zero descriptive text, shifted to the lower black footer margin (y=892..930) to sit below the copyright line with zero obstruction. Physical Deck ID cards encode the permanent deck URL (latest is greatest) for pre-game table setup. |
 | 1.6.0 | 2026-09-20 | Add `meta.optical_deck_id` (§3.1), `CardEntry.slot_numbers` and `CardEntry.optical_ids` (§5.1), and §5.4 (Steady Sleeve Slot Numbers & Optical Barcodes). Documents the steady slot allocation lifecycle across deck revisions, 24-bit Data Matrix barcode serialization, and MaMo proxy XML export schema. |
 | 1.5.1 | 2026-09-20 | Document §6.1.6 (Starting Hand Quality) — no schema change. Clarifies, for completeness, that MaMoFrontend's informational (non-keep/mulligan-deciding) Mana Curve/tier-ranking/synergy-chain bonuses are **not** offered as `mulligan` JSON fields, because two of the three (tier ranking, synergy chains) depend on MaMo-internal data (per-card Mechanic Graph tier assignments, inter-group enabling relationships) that this notation's `mechanic_groups` (a flat string-key list) has no field for at all. |
 | 1.5.0 | 2026-09-20 | Add `mulligan.mana_base_min`/`mana_base_max` (§6.1.5) and validation rule 17 — a second, independent keep/mulligan model (Mana Base Band) that scores only lands and cheap mana-producing cards against a fixed band, with two separate verdicts (`Playable` vs. `Good AI hand`). Additive: does not remove or reshape any existing field, and does not extend to the compact `.dck` `AiHints=` encoding (§6.1.4), which is unaffected and still governs real Forge games via §§6.1.1–6.1.3 alone. |

@@ -198,11 +198,11 @@ sequenceDiagram
 
 ### 3.2.1 Optical Barcode Scanning & Physical Card Identification
 - **8×18 Data Matrix (ECC200) Detection**:
-  - Top-down playmat camera scans detect the compact 8×18 rectangular Data Matrix badge printed in the card's bottom footer margin (`y=872..910`).
-  - Decodes the 24-bit payload (`[deck_id: 8-bit][card_in_deck: 8-bit][player_id: 4-bit][placeholder: 4-bit]`) serialized as a 6-character hex string (e.g. `"2A0F00"`).
+  - Top-down playmat camera scans detect the compact 8×18 rectangular Data Matrix badge located in the card's lower footer margin (`y = 892..930`, below copyright notice).
+  - Decodes either the primary slot numeric string (e.g. `"15"`) or legacy 24-bit 6-hex payload (`"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`, e.g. `"2A0F00"`).
 - **Direct Card & Owner Resolution**:
   - Maps `card_in_deck` directly into the deck's steady slot allocation table (`slot_numbers`), achieving $100\%$ card identity confidence without visual art ambiguity or OCR error.
-  - Resolves player ownership dynamically via match lobby deck assignment (`player_id = 0`) or directly via pre-baked seat (`player_id = 1..14`).
+  - Resolves player ownership and deck context from the pre-game Deck ID QR card scan (`https://mamo.app/deck/<deck_id>`) or match lobby seat assignment.
 
 ### 3.3 Companion Telemetry Stream
 - Real-time event timestamps sent from `mamo-companion`:
