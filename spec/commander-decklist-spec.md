@@ -364,7 +364,7 @@ Card optical recognition uses a decoupled 3-tier architecture separating table s
 **Minimalist Badge & Physical Placement:**
 - **Content:** Contains strictly the 8×18 Data Matrix barcode and the human-readable `#Slot` number (e.g. `[ 8x18 ] #15`). Contains no card names, set codes, or descriptive elements.
 - **Dimensions:** Measures ~11.8 mm wide × 3.6 mm high (pill badge with rounded corners).
-- **Lower Footer Placement:** Positioned in the card's lower black margin (`y = 892..930` on a 672×936 master template). This places the badge strictly below the copyright notice (`™ & © ... Wizards of the Coast`, `y = 876..888`), ensuring 100% of rules text, artist credit, and copyright information remain unobstructed.
+- **Lower Footer Placement:** Positioned in the card's lower black margin (`y = 882..920` on a 672×936 master template). This places the badge safely within the bottom margin to clear corner radius cuts and trimming tolerances, while ensuring 100% of rules text, artist credit, and copyright information remain unobstructed.
 
 #### 5.4.3 Proxy XML Export Schema
 

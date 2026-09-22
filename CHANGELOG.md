@@ -14,10 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     2. **Player ID Card:** QR/Data Matrix identifying player seat.
     3. **Card Footer Markers:** 8×18 Data Matrix encoding strictly steady slot numbers (`1..100` / `0..255`) with maximum ECC200 error correction redundancy.
   - Minimalist badge design: strictly Data Matrix and `#Slot` number (e.g. `[ 8x18 ] #15`) with zero card names, set codes, or descriptive elements.
-  - Lower footer placement: shifted to `y = 892..930` on 672×936 master template, placing markers strictly below copyright and rules text with zero obstruction.
+  - Lower footer placement: positioned at `y = 882..920` on 672×936 master template, placing markers safely in the black margin below copyright text while clearing corner cuts and trimming tolerances.
   - Maintained backward compatibility for 24-bit 6-hex decoders.
 - **`commander-decklist-spec.md` bumped to v1.6.1**:
-  - Updated §5.4.2 to document streamlined slot-only Data Matrix architecture and lower margin placement (`y = 892..930`).
+  - Updated §5.4.2 to document streamlined slot-only Data Matrix architecture and lower margin placement (`y = 882..920`).
   - Updated `optical_ids` in `CardEntry` and `commander-decklist-schema.json` to accept numeric slot strings (`"15"`) and legacy 6-hex strings.
 - **`live-game-capture-spec.md`**:
   - Updated §3.2.1 to reflect decoupled slot-only vision recognition and setup-stage Deck ID resolution.
