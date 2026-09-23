@@ -181,7 +181,7 @@ When capturing physical card games via optical computer vision (e.g. overhead we
 ```
 
 **Physical Placement & Clearance:**  
-The 8×18 Data Matrix badge measures ~11.8 mm × 3.6 mm (including quiet zone and `#Slot` label). It is positioned in the card's lower black margin (`y = 882..920` on a 672×936 master template). This positions the badge safely inside the bottom margin to clear corner radius cuts and cutting tolerances, while ensuring 100% of card rules text, flavor text, artist credits, and copyright notices remain completely unobstructed.
+The 8×18 Data Matrix badge measures ~11.8 mm × 3.6 mm (including quiet zone and `#Slot` label). It is positioned in the card's lower black margin (`y = 879..917` on a 672×936 master template). This positions the badge safely inside the bottom margin to clear corner radius cuts and cutting tolerances, while ensuring 100% of card rules text, flavor text, artist credits, and copyright notices remain completely unobstructed.
 
 #### 3.1.2 Steady Card Slot Allocation System (Revision Stability)
 

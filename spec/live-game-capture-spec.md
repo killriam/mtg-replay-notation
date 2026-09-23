@@ -198,7 +198,7 @@ sequenceDiagram
 
 ### 3.2.1 Optical Barcode Scanning & Physical Card Identification
 - **8×18 Data Matrix (ECC200) Detection**:
-  - Top-down playmat camera scans detect the compact 8×18 rectangular Data Matrix badge located in the card's lower footer margin (`y = 882..920`, below copyright notice).
+  - Top-down playmat camera scans detect the compact 8×18 rectangular Data Matrix badge located in the card's lower footer margin (`y = 879..917`, below copyright notice).
   - Decodes either the primary slot numeric string (e.g. `"15"`) or legacy 24-bit 6-hex payload (`"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`, e.g. `"2A0F00"`).
 - **Direct Card & Owner Resolution**:
   - Maps `card_in_deck` directly into the deck's steady slot allocation table (`slot_numbers`), achieving $100\%$ card identity confidence without visual art ambiguity or OCR error.
