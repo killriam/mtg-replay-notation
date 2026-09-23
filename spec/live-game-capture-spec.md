@@ -223,7 +223,7 @@ Players frequently jot down in-game shorthand, turn notes, or post-match summari
   - Exposes **hidden/private information** intentionally recorded by the player (e.g. card tutored to hand, facedown morph card identity).
 
 ### 3.4.1 Standardized Printable Telemetry Sheet (Commander Game Note Sheet)
-For players opting for low-friction physical analog logging during tabletop Commander games (especially when life totals, pod damage, and standings are managed digitally via companion apps such as **Playgroup.gg**), MaMo provides an integrated, printable half-sheet template:
+For players opting for low-friction physical analog logging during tabletop Commander games (especially when life totals, pod damage, and standings are managed digitally via companion apps such as **Playgroup.gg**), MaMo provides an integrated, printable personal telemetry half-sheet:
 
 - **Format & Layout**: Standardized **DIN A5 half-sheet (148 × 210 mm)**. Available as:
   - *Page 1 (2-Up)*: Two complete game logs side-by-side on standard DIN A4 landscape (297 × 210 mm) with a central dashed cut line (`x = 148.5 mm`).
@@ -239,15 +239,33 @@ For players opting for low-friction physical analog logging during tabletop Comm
      - `TURN`: Round indicator (`T 1` .. `T 14`).
      - `CARDS DRAWN`: Dotted handwriting baseline for drawn cards or velocity (`+1`, `+3`). Cards in hand are derived deterministically as $(\text{Total Drawn} - \text{Total Played})$.
      - `LAND PLAYED`: Dotted baseline for land drops.
-     - `CARDS PLAYED (#)`: Dual baselines for cast spells or 8×18 Data Matrix slot numbers (`#1..#100`).
-     - `KEY ACTIONS / NOTES`: Dual baselines for combat attacks, targets, triggers, and counterspells.
-     - `THREAT P#`: Per-turn threat assessment box (`P [   ]`) allowing the player to number the opponent (`P1`, `P2`, `P3`, `P4`) perceived as the active archenemy or primary threat each turn.
+     - `CARDS PLAYED (Name / #)`: Dual baselines for cast spells or 8×18 Data Matrix slot numbers (`#1..#100`).
+     - `KEY ACTIONS / COMBAT / NOTES`: Dual baselines for combat attacks, targets, triggers, and counterspells.
   4. **Post-Game Notes & Deck Tuning**:
      - `MVP (Name or Slot #)`: Card that overperformed or enabled the win condition.
      - `Cut Candidate (Name or Slot #)`: Underperforming card or dead draw.
-     - `Threat: P [   ]`: Overall primary opponent threat for the match.
 - **Multimodal Reconstruction Role**:
-  - The rigid, bounding-box-aligned geometry enables mobile camera capture and OCR segmentation (`scripts/ocr_signal_game_notes.py`), feeding verified turn anchors and threat telemetry directly into the Multimodal Fusion & State Inference Engine.
+  - The rigid, bounding-box-aligned geometry enables mobile camera capture and OCR segmentation (`scripts/ocr_signal_game_notes.py`), feeding verified turn anchors directly into the Multimodal Fusion & State Inference Engine.
+
+### 3.4.2 Game State & Threat Evaluation Sheet (Tactical Pod Assessment)
+To track multiplayer dynamics, threat progression, and strategic decision points without cluttering the personal card play log, MaMo provides a dedicated companion sheet for game state evaluation:
+
+- **Format & Layout**: Standardized **DIN A5 half-sheet (148 × 210 mm)** (A4 2-Up landscape and standalone A5 portrait).
+- **Application Integration**: Downloadable via **Deck Finishing** > **Command Tower** dropdown (`Data & Print` > `🎯 Threat Evaluation Sheet (PDF)`), hosted at `/templates/commander_game_state_evaluation_sheet_a5.pdf`.
+- **Recorded Fields & Schema Mapping**:
+  1. **Pod Seating & Identification**: Assigns seat numbers: `P1 (You)`, `P2 (Left)`, `P3 (Across)`, `P4 (Right)` with player/commander names.
+  2. **Turn-by-Turn Threat & State Table (Turns 1–14)**:
+     - `TURN`: Round counter (`T 1` .. `T 14`).
+     - `THREAT SEAT`: Dual numbered boxes for `1st: P [   ]` (primary active threat/archenemy) and `2nd: P [   ]` (secondary threat).
+     - `THREAT REASON / KEY PERMANENTS`: Dual baselines to record the threatening board presence, engine, or combo assembly (e.g. Rhystic Study, Smothering Tithe, lethal commander damage, tutor resolution).
+     - `MY STATUS & ROLE`: Quick status check (`[ ] Ahead  [ ] Par  [ ] Behind`) and active tactical role (`Developing`, `Defending`, `Aggro`, `Holding Interaction`).
+     - `TACTICAL RESPONSE / DECISION`: Dual baselines logging the player's counter-strategy, removal target, or pass decision.
+  3. **Strategic Debrief**:
+     - `Primary Archenemy`: Dominant threat of the match (`P [   ]`).
+     - `Game Turning Point`: Critical round number (`Turn [   ]`).
+     - `Blunder / Misplay Check`: Key mistake or missed line identified for training.
+- **Evaluation Framework Alignment**:
+  - Directly feeds the [MTG State Evaluation Framework](./mtg-state-evaluation-spec.md) vectors: **Board Pressure**, **Inevitability**, **Tempo**, and **Blunder Detection**.
 
 ---
 
