@@ -222,6 +222,33 @@ Players frequently jot down in-game shorthand, turn notes, or post-match summari
   - Provides **ground-truth sequence landmarks** to disambiguate periods of quiet play, background noise, or overlapping speech.
   - Exposes **hidden/private information** intentionally recorded by the player (e.g. card tutored to hand, facedown morph card identity).
 
+### 3.4.1 Standardized Printable Telemetry Sheet (Commander Game Note Sheet)
+For players opting for low-friction physical analog logging during tabletop Commander games (especially when life totals, pod damage, and standings are managed digitally via companion apps such as **Playgroup.gg**), MaMo provides an integrated, printable half-sheet template:
+
+- **Format & Layout**: Standardized **DIN A5 half-sheet (148 × 210 mm)**. Available as:
+  - *Page 1 (2-Up)*: Two complete game logs side-by-side on standard DIN A4 landscape (297 × 210 mm) with a central dashed cut line (`x = 148.5 mm`).
+  - *Page 2 (Standalone)*: Single DIN A5 portrait layout formatted for small clipboards, A5 paper trays, or digital e-ink tablets (e.g. iPad, reMarkable).
+- **Application Integration**: Downloadable directly within `MaMoFrontend` via **Deck Finishing** > **Command Tower** dropdown (`Data & Print` > `📋 Game Note Sheet (PDF)`), and permanently hosted at `/templates/commander_game_note_sheet_a5.pdf`.
+- **Recorded Fields & Schema Mapping**:
+  1. **Minimal Header**: `DECK`, `DATE`, `MATCH #`.
+  2. **Starting Hand Box (8 Cards)**:
+     - `Mulligan down to: [   ]`: Write-in box for final kept card count.
+     - `Opening Lands: [   ]`: Initial mana base count.
+     - `Slots 1–8`: Two 4-column rows (Slots 1–4 and 5–8) capturing the 7-card opening hand plus the guaranteed Turn 1 draw step (or partner commanders).
+  3. **Turn-by-Turn Action Table (Turns 1–14)**:
+     - `TURN`: Round indicator (`T 1` .. `T 14`).
+     - `CARDS DRAWN`: Dotted handwriting baseline for drawn cards or velocity (`+1`, `+3`). Cards in hand are derived deterministically as $(\text{Total Drawn} - \text{Total Played})$.
+     - `LAND PLAYED`: Dotted baseline for land drops.
+     - `CARDS PLAYED (#)`: Dual baselines for cast spells or 8×18 Data Matrix slot numbers (`#1..#100`).
+     - `KEY ACTIONS / NOTES`: Dual baselines for combat attacks, targets, triggers, and counterspells.
+     - `THREAT P#`: Per-turn threat assessment box (`P [   ]`) allowing the player to number the opponent (`P1`, `P2`, `P3`, `P4`) perceived as the active archenemy or primary threat each turn.
+  4. **Post-Game Notes & Deck Tuning**:
+     - `MVP (Name or Slot #)`: Card that overperformed or enabled the win condition.
+     - `Cut Candidate (Name or Slot #)`: Underperforming card or dead draw.
+     - `Threat: P [   ]`: Overall primary opponent threat for the match.
+- **Multimodal Reconstruction Role**:
+  - The rigid, bounding-box-aligned geometry enables mobile camera capture and OCR segmentation (`scripts/ocr_signal_game_notes.py`), feeding verified turn anchors and threat telemetry directly into the Multimodal Fusion & State Inference Engine.
+
 ---
 
 ## 4. Domain Prior & Lexicon Biasing
