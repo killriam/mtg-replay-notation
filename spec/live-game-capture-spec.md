@@ -247,25 +247,28 @@ For players opting for low-friction physical analog logging during tabletop Comm
 - **Multimodal Reconstruction Role**:
   - The rigid, bounding-box-aligned geometry enables mobile camera capture and OCR segmentation (`scripts/ocr_signal_game_notes.py`), feeding verified turn anchors directly into the Multimodal Fusion & State Inference Engine.
 
-### 3.4.2 Game State & Threat Evaluation Sheet (Tactical Pod Assessment)
-To track multiplayer dynamics, threat progression, and strategic decision points without cluttering the personal card play log, MaMo provides a dedicated companion sheet for game state evaluation:
+### 3.4.2 Game State Evaluation Sheet (End-of-Round Table Discussion & Vector Rankings)
+To evaluate multiplayer board progression, relative advantages, and game dynamics without cluttering personal deck notes, MaMo provides a dedicated companion sheet for end-of-round table discussions:
 
-- **Format & Layout**: Standardized **DIN A5 half-sheet (148 × 210 mm)** (A4 2-Up landscape and standalone A5 portrait).
-- **Application Integration**: Downloadable via **Deck Finishing** > **Command Tower** dropdown (`Data & Print` > `🎯 Threat Evaluation Sheet (PDF)`), hosted at `/templates/commander_game_state_evaluation_sheet_a5.pdf`.
+- **Format & Layout**: Standardized **DIN A5 Landscape (210 × 148 mm)**. Formatted as:
+  - *Page 1 (2-Up)*: Two complete game state sheets top-and-bottom on standard DIN A4 portrait (210 × 297 mm) with a central dashed cut line (`y = 148.5 mm`).
+  - *Page 2 (Standalone)*: Single DIN A5 landscape page for native A5 printing or digital stylus tablets.
+- **Application Integration**: Downloadable via **Deck Finishing** > **Command Tower** dropdown (`Data & Print` > `🎯 Game State Evaluation Sheet (PDF)`), hosted at `/templates/commander_game_state_evaluation_sheet_a5.pdf`.
 - **Recorded Fields & Schema Mapping**:
   1. **Pod Seating & Identification**: Assigns seat numbers: `P1 (You)`, `P2 (Left)`, `P3 (Across)`, `P4 (Right)` with player/commander names.
-  2. **Turn-by-Turn Threat & State Table (Turns 1–14)**:
-     - `TURN`: Round counter (`T 1` .. `T 14`).
-     - `THREAT SEAT`: Dual numbered boxes for `1st: P [   ]` (primary active threat/archenemy) and `2nd: P [   ]` (secondary threat).
-     - `THREAT REASON / KEY PERMANENTS`: Dual baselines to record the threatening board presence, engine, or combo assembly (e.g. Rhystic Study, Smothering Tithe, lethal commander damage, tutor resolution).
-     - `MY STATUS & ROLE`: Quick status check (`[ ] Ahead  [ ] Par  [ ] Behind`) and active tactical role (`Developing`, `Defending`, `Aggro`, `Holding Interaction`).
-     - `TACTICAL RESPONSE / DECISION`: Dual baselines logging the player's counter-strategy, removal target, or pass decision.
-  3. **Strategic Debrief**:
-     - `Primary Archenemy`: Dominant threat of the match (`P [   ]`).
-     - `Game Turning Point`: Critical round number (`Turn [   ]`).
-     - `Blunder / Misplay Check`: Key mistake or missed line identified for training.
+  2. **Early Game Development Block (Rounds 1–2 Side-by-Side)**:
+     - Focuses exclusively on **Resource Potential** (mana base, lands, rocks, dorks, ramp acceleration).
+     - R1 & R2 are placed side-by-side to optimize sheet space since complex combat, engines, and lethal threats have not yet developed.
+     - Inside each round: 4 ranked rows (`1: P[ ]`, `2: P[ ]`, `3: P[ ]`, `4: P[ ]`) with generous note space for ramp cards (e.g. *Sol Ring*, *Mana Crypt*, *dork*, *missed land*).
+  3. **Full State Evaluation Table (Rounds 3–10)**:
+     - Four full state vector columns corresponding to the [MTG State Evaluation Framework](./mtg-state-evaluation-spec.md):
+       - `RESOURCE POTENTIAL`: Mana production capacity & card advantage / hand size (Dimension 1 & 4).
+       - `BOARD PRESENCE`: Battlefield footprint, power/toughness, blocker density (Dimension 2).
+       - `DECK SYNERGY`: Engine assembly stage, active formations, archetype cohesion (Dimension 9 & Section 7).
+       - `THREAT POTENTIAL`: Lethality clock, burst damage, inevitability / archenemy status (Dimension 5 & 10).
+     - Inside each category cell: 4 dedicated rows for player ranking (`1: P[ ]`, `2: P[ ]`, `3: P[ ]`, `4: P[ ]`) with dotted lines for key reasons / permanents (e.g. `Rhystic`, `8 pwr`, `sac loop`, `lethal clock`).
 - **Evaluation Framework Alignment**:
-  - Directly feeds the [MTG State Evaluation Framework](./mtg-state-evaluation-spec.md) vectors: **Board Pressure**, **Inevitability**, **Tempo**, and **Blunder Detection**.
+  - The turn-by-turn ordinal rankings $[\text{Rank}_{\text{Res}}, \text{Rank}_{\text{Brd}}, \text{Rank}_{\text{Syn}}, \text{Rank}_{\text{Thr}}]$ feed directly into the State Evaluation Framework's vector dominance and relative player advantage models.
 
 ---
 
