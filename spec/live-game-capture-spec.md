@@ -184,6 +184,7 @@ sequenceDiagram
 - **Acoustic Environment Handling**:
   - Voice Activity Detection (VAD) to filter background room noise and table shuffling.
   - Speaker diarization to attribute spoken declarations to Player seats (e.g. Seat 1: David, Seat 2: Opponent).
+- **Known Limitation — No Working Diarization in Practice**: both archived room-mode datasets to date (`2026-08-28-session`, `2026-09-26-session`) were captured with a single ambient mic and carry **zero speaker labels** in the raw ASR output; diarization above is aspirational until Phase 6 hardware/software lands. Until then, the fusion engine MUST fall back to **Name-Mention Anchoring**: attribute an action to a player only when that player's name (or an unambiguous "du"/"you" addressed to a previously-named target) appears in the same or an adjacent utterance; otherwise emit the event with `player: "unattributed"` rather than guessing from turn-order heuristics or vocal-tone continuity. A 5-player, 3+ hour real session (`2026-09-26-session`) showed that guessing here produces confidently wrong attributions (see 3.5.1) that are worse than an honest "unattributed" tag.
 
 ### 3.2 Video Capture & Coordinate Normalization
 - **Camera Position**: Top-down or high-angle angled webcam/phone camera covering the playmat.
@@ -269,6 +270,36 @@ To evaluate multiplayer board progression, relative advantages, and game dynamic
      - Inside each category cell: 4 dedicated rows for player ranking (`1: P[ ]`, `2: P[ ]`, `3: P[ ]`, `4: P[ ]`) with dotted lines for key reasons / permanents (e.g. `Rhystic`, `8 pwr`, `sac loop`, `lethal clock`).
 - **Evaluation Framework Alignment**:
   - The turn-by-turn ordinal rankings $[\text{Rank}_{\text{Res}}, \text{Rank}_{\text{Brd}}, \text{Rank}_{\text{Syn}}, \text{Rank}_{\text{Thr}}]$ feed directly into the State Evaluation Framework's vector dominance and relative player advantage models.
+
+### 3.5 Third-Party Digital Life-Tracker Cross-Validation (e.g. Playgroup.gg)
+
+**Pattern derived from the `2026-09-26-session` dataset.** A large share of Commander pods already run a phone/tablet life-counter app (Playgroup.gg, or similar) alongside physical play, purely for life totals and turn timing — independent of any MaMo integration. Where the host or a player exports that app's own timeline/event log, it is a **near-zero-cost, high-confidence telemetry source** and should be ingested on par with (arguably above) Companion Telemetry Sync (§3.3), because it already exists without any capture-pipeline effort:
+
+- **What it reliably provides**: exact life deltas per event, elimination order, the declared winner, and — critically — an unambiguous **game/match boundary** (one tracker "game" record = one physical game, regardless of how the room's conversation flows around it).
+- **What it does not provide**: card names, spell/ability causality, or turn phase — it is a life/round skeleton, not a replay. It complements rather than replaces audio/vision perception.
+- **Primary use in the Fusion Engine (§6)**:
+  1. **Life-total resolution**: when audio/vision disagree or are silent on a life change, the tracker's logged delta is authoritative.
+  2. **Elimination order & winner**: use the tracker's `ELIMINATED`/`GAME_END`/`lost the game` events as ground truth in preference to inferring "who died when" from combat banter.
+  3. **Game-boundary correction**: treat a single tracker game record as one game, full stop. Do not let a lull in audio, a snack break, or an off-topic tangent (§3.6) be misread as a new game starting — that mistake is exactly what happened on first pass with the `2026-09-26-session` dataset, which was originally (and wrongly) split into two separate "games" around a conversational gap that a Playgroup.gg export later proved was mid-game.
+- **Player-identity caveat**: third-party tracker usernames are **not** pre-mapped to MaMo user IDs or real names. Only a player who is independently confirmed (e.g. their own MaMo account, matched by email/login) can be resolved automatically; other seats' usernames should be carried through as opaque labels and only resolved to real names via explicit user confirmation (Step 2 of §2.1), never guessed from audio nicknames alone.
+- **Reference fixture**: `testing/fixtures/live-capture/2026-09-26-session/playgroup_ground_truth.json` — a structured extraction of one such export, including an `audio_cross_references` block showing exactly where the audio-only reconstruction was corrected once this source was available. Treat this file the same way `replays/*.json` is used for the `2026-08-28-session` dataset (§8): as a benchmark target, not a training input.
+
+#### 3.5.1 Case Study: What Went Wrong Without It
+
+Before the tracker export was cross-referenced, the audio-only reconstruction of `2026-09-26-session`:
+1. Split one continuous 5-player game into two separate "games" at a conversational lull, because Niv-Mizzet/Kenrith (present the whole game) only became audibly central late, and no audio signal marked a new game starting (no mulligan/shuffle dialogue, no reset chatter).
+2. Misattributed a heard elimination line — `"Joni, du bist tot übrigens"` — to the wrong point in the game's actual timeline, purely because it had no way to anchor a spoken line to a specific tracker-confirmed round without diarization or a name→username mapping.
+3. Assumed the player heard saying `"du hast noch zwei Leben"` (2 life) had lost, when the tracker showed that player's subsequent small-heal pattern and eventual win — audio alone captures a moment, not its outcome.
+
+None of these were ASR quality failures (the actual card names and quotes transcribed correctly, see §4.3's homophone table for confirmed accurate resolutions from this same session: Karn/"Kahn", Pernicious Deed/"Precious Deeds", Niv-Mizzet/"Nif", Kenrith/"Ken Riff", Fatestitcher/"Fade Stitcher", Sigarda's Aid/"Zigardas-Aid"). They were **structural** failures — the kind only a second, independent event source can catch. This is the core argument for building tracker cross-validation into the pipeline rather than treating audio+decklist-prior ASR as sufficient on its own.
+
+### 3.6 Non-Game Content Segmentation & Redaction
+
+Room-mode ambient capture, by construction, keeps recording after the game ends and during any lull inside it. The `2026-09-26-session` dataset (a ~6-hour continuous capture) contained substantial stretches of pre-game banter, mid-session personal/family/political conversation, and — after the final game ended — several minutes of multilingual family conversation (English/Russian/Portuguese) unrelated to Magic in any way. None of this is useful signal for state inference, and some of it is content the players and bystanders did not consent to having retained as a "Magic session" artifact.
+
+- **Pipeline requirement**: before persistence or display, classify each transcript window as `IN_GAME` vs. `OFF_TOPIC` (a cheap classification pass — presence of card names via decklist-prior lexicon, MTG action verbs, or turn-structure cues is a strong signal) and exclude `OFF_TOPIC` windows from both the state-inference engine's input and any long-term storage/display surface.
+- **Do not use topic changes as game-boundary signals** — see §3.5's game-boundary correction above; a switch to off-topic conversation and back does not imply a new game.
+- **Storage/consent implication**: raw audio and full transcripts of an ambient capture are a superset of "the game" and must be handled accordingly (e.g. not swept into a shared repo's git history via a broad `.gitignore` exception) until a redaction pass has run. This is a process gap identified during `2026-09-26-session` intake, not yet a pipeline stage — see [live-capture-progress.md](./live-capture-progress.md).
 
 ---
 
@@ -430,3 +461,4 @@ To benchmark and iterate on the reconstruction pipeline, the project maintains a
 2. **Turn & Phase Alignment Accuracy**: Correct identification of active turn player and phase boundaries.
 3. **Action Event Accuracy**: Precision of `CAST`, `ACTIVATE`, `ATTACK`, `DAMAGE`, `LIFE` events compared against human ground truth.
 4. **State Consistency Score**: Percentage of game turns where reconstructed board state remains 100% legal under MTG Comprehensive Rules.
+5. **Cross-Source Agreement Rate** (added after `2026-09-26-session`): where an independent source is available (third-party life tracker per §3.5, Forge replay JSON per `replays/*.json`), the percentage of life-total, elimination, and game-boundary events on which the audio/vision reconstruction agrees with that source before any manual correction. This is the metric that caught the `2026-09-26-session` game-boundary and elimination-attribution errors described in §3.5.1, and is the only metric of the five that scores *structural* correctness rather than per-event perception accuracy.
