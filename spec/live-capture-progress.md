@@ -14,7 +14,7 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 | **Phase 2** | Architecture & Protocol Specification |  **Completed** | [Live Game Capture Spec v1.0.0](./live-game-capture-spec.md) detailing ingestion, decklist priors, ASR biasing, fusion, and replay emission. |
 | **Phase 3** | Ground-Truth Replay Target (`ground_truth_replay.json`) | 🟡 **In Progress** | Manual human-annotated MTG Replay Notation L1 events for the 2026-08-28 games to serve as gold standard evaluation. Extended by a second, independently-sourced ground truth for `2026-09-26-session` — see Phase 3b. |
 | **Phase 3b** | Third-Party Tracker Ground Truth & Second Dataset | ✅ **Completed** | `2026-09-26-session` archived (5-player Commander, ~6hr ambient capture) with a Playgroup.gg tracker export cross-referenced into `playgroup_ground_truth.json`. Drove three new spec patterns: §3.5 Third-Party Digital Life-Tracker Cross-Validation, the diarization-fallback note in §3.1, and §3.6 Non-Game Content Segmentation & Redaction. |
-| **Phase 3c** | Multiplayer Synthesis & Frontend Recap Integration | ⚪ *Planned* | Generalize the existing (currently 2-player, hardcoded-stub) `liveCaptureSynthesizer.ts` to real N-player synthesis; ship a `GameRecapView` reachable from a new playgroup "Games" tab. See detail section below. |
+| **Phase 3c** | Multiplayer Synthesis & Frontend Recap Integration | 🟡 **In Progress** (step 1/4 done) | Generalize the existing (currently 2-player, hardcoded-stub) `liveCaptureSynthesizer.ts` to real N-player synthesis; ship a `GameRecapView` reachable from a new playgroup "Games" tab. See detail section below. |
 | **Phase 4** | Decklist-Biased ASR & Dialogue Intent Parser | ⚪ *Planned* | Python/FastAPI module extracting card entities & game actions from spoken dialogue with Whisper vocabulary prompting. |
 | **Phase 5** | Companion App & Live Telemetry Integration | ⚪ *Planned* | Audio capture stream / upload button & telemetry synchronization hooks in `mamo-companion`. |
 | **Phase 6** | Computer Vision Playmat Tracker | ⚪ *Planned* | OpenCV/YOLO top-down playmat card detector, zone classifier, and tap/untap state detector. |
@@ -90,12 +90,22 @@ string, so generalizing to N players is a service-logic change, not a type/schem
 
 ### Plan
 
-1. **Data model** (additive, via the startup-hook `ALTER TABLE` pattern — not the manual
-   `iac/migrations`/`src/migrations` folders, per this repo's known migration gotcha):
-   add `game_feedback_games.recap_data jsonb` for the identity-resolution roster, table-dynamics
-   entries, contested/unresolved notes, and source trail. `game_logs.parsed_replay` keeps
-   holding the technical `MtgReplayFile` round/turn events — no change to that split.
-   Start actually populating `game_feedback_sessions.playgroup_id`.
+1. ✅ **Done (2026-09-27).** **Data model** (additive): added `game_feedback_games.recap_data
+   jsonb` for the identity-resolution roster, table-dynamics entries, contested/unresolved
+   notes, and source trail. `game_logs.parsed_replay` keeps holding the technical
+   `MtgReplayFile` round/turn events — no change to that split.
+   **Correction to this plan's original wording**: the actual self-applying mechanism isn't a
+   true server-boot hook — it's `GameFeedbackService.ensureTables()`
+   (`new-backend/src/services/gameFeedbackService.ts`), a lazy idempotent
+   `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` block called at
+   the top of every `GameFeedbackController` request handler. Same practical effect
+   (self-applying, no manual migration step to run), just triggered per-request rather than
+   once at process start. Verified against a real local Postgres
+   (`docker compose -f docker-compose.local.yml`), not assumed. Type added:
+   `GameFeedbackGameRow.recap_data?: unknown` in `new-backend/src/types/gameFeedback.ts`
+   (shape intentionally left loose until step 2's writer exists; not added to `mamo-types`).
+   **Deliberately not done yet**: populating `game_feedback_sessions.playgroup_id` — scoped
+   out of step 1 on purpose, not forgotten.
 2. **Backend**: generalize `liveCaptureSynthesizer.ts` from `P1`/`P2` to
    `Object.keys(request.players)`, compute life/elimination from parsed actions instead of
    hardcoding, and add an optional tracker-export / note-sheet-OCR input alongside
@@ -130,6 +140,15 @@ view is solid.
   (not `game_logs`, not a new table).
 - Built a static design mockup of the resulting recap page (an Artifact, not committed to
   either repo) to validate the information architecture before writing real code against it.
+- **Started implementation**: Phase 3c step 1 done — `game_feedback_games.recap_data jsonb`
+  added and verified against a real local Postgres via the `local-dev-environment` subagent
+  (`new-backend` commits `c14cdd6`, `9058796`, local only, not pushed). Corrected this doc's
+  own description of the self-applying schema mechanism in the process — see the plan's
+  step 1 for the accurate version.
+- Assembled `testing/fixtures/live-capture/2026-09-26-session/recap-inputs/` — a
+  self-contained, re-runnable input bundle (transcript, transcribed note-sheet text, tracker
+  export, confirmed player roster, README) for regenerating this session's recap later,
+  whether by hand or once Phase 3c's synthesizer supports it.
 
 ### 2026-09-26
 - Archived a second real-world dataset (`2026-09-26-session`): 5-player Commander, ~6hr ambient capture, no diarization.
