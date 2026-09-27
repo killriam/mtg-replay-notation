@@ -14,6 +14,7 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 | **Phase 2** | Architecture & Protocol Specification |  **Completed** | [Live Game Capture Spec v1.0.0](./live-game-capture-spec.md) detailing ingestion, decklist priors, ASR biasing, fusion, and replay emission. |
 | **Phase 3** | Ground-Truth Replay Target (`ground_truth_replay.json`) | 🟡 **In Progress** | Manual human-annotated MTG Replay Notation L1 events for the 2026-08-28 games to serve as gold standard evaluation. Extended by a second, independently-sourced ground truth for `2026-09-26-session` — see Phase 3b. |
 | **Phase 3b** | Third-Party Tracker Ground Truth & Second Dataset | ✅ **Completed** | `2026-09-26-session` archived (5-player Commander, ~6hr ambient capture) with a Playgroup.gg tracker export cross-referenced into `playgroup_ground_truth.json`. Drove three new spec patterns: §3.5 Third-Party Digital Life-Tracker Cross-Validation, the diarization-fallback note in §3.1, and §3.6 Non-Game Content Segmentation & Redaction. |
+| **Phase 3c** | Multiplayer Synthesis & Frontend Recap Integration | ⚪ *Planned* | Generalize the existing (currently 2-player, hardcoded-stub) `liveCaptureSynthesizer.ts` to real N-player synthesis; ship a `GameRecapView` reachable from a new playgroup "Games" tab. See detail section below. |
 | **Phase 4** | Decklist-Biased ASR & Dialogue Intent Parser | ⚪ *Planned* | Python/FastAPI module extracting card entities & game actions from spoken dialogue with Whisper vocabulary prompting. |
 | **Phase 5** | Companion App & Live Telemetry Integration | ⚪ *Planned* | Audio capture stream / upload button & telemetry synchronization hooks in `mamo-companion`. |
 | **Phase 6** | Computer Vision Playmat Tracker | ⚪ *Planned* | OpenCV/YOLO top-down playmat card detector, zone classifier, and tap/untap state detector. |
@@ -46,7 +47,89 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 
 ---
 
+## Phase 3c: Multiplayer Synthesis & Frontend Recap Integration
+
+**Confirmed scope decisions**: this feature is **playgroup-scoped, not deck-scoped**, and its
+recap data lives alongside the existing **`game_feedback_*` (live game feedback) tables**,
+not `game_logs` (which stays the technical replay layer) or a new top-level table.
+
+### The existing connection point (build on this, don't replace it)
+
+Direct code inspection found this is further along than expected:
+- **Frontend**: `MaMoFrontend/src/components/gamelogs/UploadReplayModal.tsx` already has a
+  "Synthesize from References" tab (`notesText` + `transcriptText` inputs, per-player
+  name/commander fields) wired to `synthesizeGameLog()` in `src/services/gameLogsApi.ts`.
+- **Backend**: that calls `POST /api/gamelog/synthesize` (`gameLogsController.ts:1155`) →
+  `new-backend/src/services/liveCaptureSynthesizer.ts`'s `synthesizeGameLogFromReferences()`,
+  which already has a `PHONETIC_HOMOPHONE_MAP` (the same idea as this project's ASR-homophone
+  tables, built independently) and a note-line parser, emitting a standard `MtgReplayFile`.
+
+**This module is real and routed, but its logic is a 2-player demo stub** — literally seeded
+with `2026-08-28-session`'s example data (Kadena/Davros/Gwen Stacy/Mr. House). Hardcoded:
+`P1`/`P2` only, `winner: 'P1'` unconditionally, `life: 40` fixed throughout (not computed from
+actions), fabricated per-turn stats. The request type
+(`SynthesizeGameLogRequest.players: Record<string, {...}>`) is already keyed by arbitrary
+string, so generalizing to N players is a service-logic change, not a type/schema break.
+
+### Gaps confirmed by direct exploration (not assumed)
+
+- No multiplayer support, identity-resolution concept, round-by-round tracker
+  cross-referencing, note-sheet ingestion, table-dynamics capture, contested/unresolved
+  flagging, or source-trail concept anywhere in this chain.
+- No page for any of this reachable from top-level navigation — the only existing path
+  (`Evolvement/Learning` → `EvaluationTab` → `GameLogReviewPanel` → `Evolvement/Assessment` →
+  `GameLogViewer`) is deck-scoped and also bakes in a 1v1 assumption
+  (`GameLogReviewPanel.deriveGameLogSummary()` hardcodes `players[1]` as "the opponent").
+- `PlaygroupDetail.tsx` (the confirmed target home) has exactly 4 tabs
+  (`overview | members | rules | decks`) and zero games/sessions concept, even though
+  `game_feedback_sessions.playgroup_id` already exists as an unused nullable FK.
+- **Anti-pattern to avoid**: `MaMoFrontend/src/components/gamelogs/GameLogList.tsx` is a
+  fully-built, fully-typed, barrel-exported table component that is never imported by any
+  page — confirmed dead code. Whatever ships here needs its navigation entry in the same
+  change that adds it, not as a follow-up.
+
+### Plan
+
+1. **Data model** (additive, via the startup-hook `ALTER TABLE` pattern — not the manual
+   `iac/migrations`/`src/migrations` folders, per this repo's known migration gotcha):
+   add `game_feedback_games.recap_data jsonb` for the identity-resolution roster, table-dynamics
+   entries, contested/unresolved notes, and source trail. `game_logs.parsed_replay` keeps
+   holding the technical `MtgReplayFile` round/turn events — no change to that split.
+   Start actually populating `game_feedback_sessions.playgroup_id`.
+2. **Backend**: generalize `liveCaptureSynthesizer.ts` from `P1`/`P2` to
+   `Object.keys(request.players)`, compute life/elimination from parsed actions instead of
+   hardcoding, and add an optional tracker-export / note-sheet-OCR input alongside
+   `notesText`/`transcriptText`, mirroring the 3-source fusion this project proved out by hand
+   for `2026-09-26-session`. Persist the new `recap` object into `recap_data`.
+3. **Frontend**: new `GameRecapView.tsx` in `src/components/gamelogs/`, composing a new
+   roster/identity section, a new outcome/elimination summary, `GameLogViewer`'s existing
+   `TurnAccordion`/`groupTurnEvents` for the round-by-round log (reuse, don't reinvent), and a
+   new dynamics/contested/sources block. Wrap in `PageLayout`, reuse `Button`/`Modal` from
+   `src/components/common/` — there is no shared Badge/Table/Tabs component in this codebase
+   (confirmed); hand-rolled badge styling is the existing convention, not a gap to fix first.
+4. **Navigation**: add a 5th tab to `PlaygroupDetail.tsx`'s `TabType` union
+   (`"overview" | "members" | "rules" | "decks" | "games"`) — the first actually-discoverable
+   top-level entry point for any of this.
+
+**Sequencing**: (1) schema + type extensions first (small, safe, no UI change) → (2) generalize
+the synthesizer to N real players (the biggest self-contained logic lift) → (3) build
+`GameRecapView` reachable by direct logId for testing → (4) wire the playgroup tab once the
+view is solid.
+
+---
+
 ## Recent Updates
+
+### 2026-09-27
+- Investigated real MaMoFrontend/new-backend integration points for a "Gamelog by Transcript
+  & Notes" recap feature and found the connection point already exists and is routed
+  (`UploadReplayModal.tsx` → `/api/gamelog/synthesize` → `liveCaptureSynthesizer.ts`), just
+  implemented as a 2-player demo stub rather than a general N-player synthesizer.
+- Wrote up the integration plan as **Phase 3c** (above), with scope confirmed as
+  playgroup-scoped (not deck-scoped) and recap data living on the `game_feedback_*` tables
+  (not `game_logs`, not a new table).
+- Built a static design mockup of the resulting recap page (an Artifact, not committed to
+  either repo) to validate the information architecture before writing real code against it.
 
 ### 2026-09-26
 - Archived a second real-world dataset (`2026-09-26-session`): 5-player Commander, ~6hr ambient capture, no diarization.
