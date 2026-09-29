@@ -292,6 +292,27 @@ Before the tracker export was cross-referenced, the audio-only reconstruction of
 2. Misattributed a heard elimination line — `"Joni, du bist tot übrigens"` — to the wrong point in the game's actual timeline, purely because it had no way to anchor a spoken line to a specific tracker-confirmed round without diarization or a name→username mapping.
 3. Assumed the player heard saying `"du hast noch zwei Leben"` (2 life) had lost, when the tracker showed that player's subsequent small-heal pattern and eventual win — audio alone captures a moment, not its outcome.
 
+The mechanism this argues for isn't "combine four sources" — it's that **agreement and conflict must be handled differently**, not silently merged:
+
+```mermaid
+flowchart TD
+    T["Transcript<br/>ambient audio, no diarization"] -->|"quotes + timestamps"| X["Cross-Validation<br/>compare sources pairwise,<br/>resolve identity, anchor to a round"]
+    N["Note Sheet<br/>handwritten, turn-numbered"] -->|"sparse card + turn anchors"| X
+    K["Tracker Export<br/>Playgroup.gg, round-numbered"] -->|"exact round / life / elimination"| X
+    P["Hand Photos<br/>confirmed card contents"] -->|"hand contents"| X
+
+    X -->|"agree"| A["Niv-Mizzet cast, Turn 9<br/>confirmed by all 3 sources"]
+    X -->|"conflict"| B["Price of Progress, 18 dmg<br/>transcript order vs. tracker round order disagree"]
+
+    A --> H["HIGH CONFIDENCE<br/>entered as fact"]
+    B --> F["FLAGGED: CONTESTED<br/>kept open, not guessed"]
+
+    H --> O["game_log.md + game_recap_instance.md<br/>every entry carries its own confidence + source"]
+    F --> O
+```
+
+A confirmed fact becomes an entry; a conflict between two independent sources (right branch — the actual Price-of-Progress round-boundary contradiction from this session, still unresolved as of this writing) is flagged and left open rather than picked one way and asserted with the same confidence as everything else. This is the property a single-source pipeline (audio-only, or even audio+decklist-prior) cannot have: it has no second opinion to disagree with itself.
+
 None of these were ASR quality failures (the actual card names and quotes transcribed correctly, see §4.3's homophone table for confirmed accurate resolutions from this same session: Karn/"Kahn", Pernicious Deed/"Precious Deeds", Niv-Mizzet/"Nif", Kenrith/"Ken Riff", Fatestitcher/"Fade Stitcher", Sigarda's Aid/"Zigardas-Aid"). They were **structural** failures — the kind only a second, independent event source can catch. This is the core argument for building tracker cross-validation into the pipeline rather than treating audio+decklist-prior ASR as sufficient on its own.
 
 ### 3.6 Non-Game Content Segmentation & Redaction
