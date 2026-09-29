@@ -149,25 +149,33 @@ for Live Capture Synthesis, see [Live Capture Service Architecture](./live-captu
 is the wrong call here.
 
 **Contract**: [live-capture-preprocessor-interface-spec.md](./live-capture-preprocessor-interface-spec.md)
-— `POST /api/preprocess` (media_type, media_base64, optional vocabulary_hint/engine →
-extracted_text + per-segment confidence), `GET /health`.
+— `POST /api/preprocess` (automated engines) + `GET /health`, and, per the
+2026-09-29 redesign below, `POST /api/preprocess/prompt` + `POST /api/preprocess/parse`
+(bring-your-own-LLM).
+
+**Redesign (2026-09-29): dropped the API-calling `vision_llm` engine.** The original
+v1 held an Anthropic API key and called it directly. Corrected per explicit direction:
+"many options" for LLM-based recognition shouldn't mean this service integrating and
+holding credentials for N vision/audio-LLM providers — it means generating the prompt
+and letting the human run it in *any* LLM they already have, attaching the original
+file themselves, then pasting the result back to be parsed. This service now holds
+**zero LLM provider credentials**. `tesseract` remains the one automated engine
+(no external account needed); it's joined by `POST /api/preprocess/prompt` +
+`POST /api/preprocess/parse`, which work for both `image` and `audio`.
 
 **Reference implementation**: `mamo-preprocessor/` (Python 3.11 + FastAPI, modeled on
-`mamo-story-engine`'s structure minus its `jwt_secret`/`backend_api_url` coupling).
-`image` ships both engines in v1 (`vision_llm` — Anthropic Messages API, default;
-`tesseract` — pytesseract); `audio` is contract-only, returns `501` in v1 (real ASR
-already happens today via an external tool outside this codebase).
+`mamo-story-engine`'s structure minus its `jwt_secret`/`backend_api_url` coupling, and
+now minus any LLM API key too).
 
-**Verified so far**: 10 unit tests passing (routing/error-shape coverage in
-`test_health_and_errors.py`, parser-logic coverage for both engines in
-`test_engine_parsing.py`), `ruff check` clean, and a live local boot
-(`uvicorn src.main:app`) confirming `GET /health` and the `501` audio path both
-return exactly the spec's documented shape. **Not yet verified**: the actual OCR
-accuracy of either engine against the `2026-09-26-session` note-sheet fixture
-(`tests/verify_against_note_sheet_fixture.py` exists and is correct but unrun) — this
-machine has no `ANTHROPIC_API_KEY` configured and no Tesseract binary installed, so
-both engines currently report `unavailable` in `/health`. Running that verification
-is the natural next step once those two things are set up.
+**Verified so far**: 17 unit tests passing (routing/error-shape coverage, parser-logic
+coverage for tesseract and for the manual-response parser), `ruff check` clean, and a
+live local boot confirming `GET /health`, `POST /api/preprocess/prompt` (vocabulary
+hint correctly inlined), and `POST /api/preprocess/parse` (clean JSON, markdown-fenced
+noisy JSON, and the `400` rejection path) all match the spec. **Not yet verified**:
+real OCR accuracy against the `2026-09-26-session` note-sheet fixture — `tesseract` is
+unavailable on this machine (binary not installed), and the bring-your-own-LLM path's
+`--mode manual` verification is inherently a manual, per-page step (see the script's
+docstring) that hasn't been run yet.
 
 **Not yet done**: this is a local directory with its own local git history, not yet
 a real GitHub repo or a registered submodule in the root `.gitmodules` — creating
@@ -187,11 +195,20 @@ Also explicitly not done: wiring Live Capture Synthesis to actually call this se
   Live Capture Synthesis ("S5b") carries — so they can't share one host.
 - Wrote [live-capture-preprocessor-interface-spec.md](./live-capture-preprocessor-interface-spec.md)
   and scaffolded the reference implementation, `mamo-preprocessor/` — FastAPI service,
-  dual OCR engines (`vision_llm` default + `tesseract`), audio contract-only in v1.
-- Verified locally: 10 passing unit tests, clean `ruff check`, and a live boot
-  confirming `/health` and the `501` audio path match the spec exactly. OCR accuracy
-  against the real note-sheet fixture is written but not yet run — needs
-  `ANTHROPIC_API_KEY` and a local Tesseract install, neither present on this machine.
+  initially with dual OCR engines (`vision_llm` default + `tesseract`), audio
+  contract-only in v1.
+- **Same-day redesign**: dropped the Anthropic-API-calling `vision_llm` engine
+  entirely per explicit direction — "many options" for LLM-based recognition means
+  letting the human run the prompt in *any* LLM they already have, not this service
+  holding N providers' credentials. Added `POST /api/preprocess/prompt` +
+  `POST /api/preprocess/parse` (works for `image` and `audio`); `tesseract` is now the
+  only automated engine. This service holds zero LLM provider API keys.
+- Verified locally: 17 passing unit tests, clean `ruff check`, and a live boot
+  confirming `/health`, `/api/preprocess/prompt` (vocabulary hint inlined correctly),
+  and `/api/preprocess/parse` (clean JSON, markdown-fenced noisy JSON, and the `400`
+  rejection path) all match the spec exactly. Real OCR accuracy against the note-sheet
+  fixture is still unrun — `tesseract` isn't installed on this machine, and the
+  manual-LLM path's verification is inherently a per-page manual step.
 
 ### 2026-09-27
 - Investigated real MaMoFrontend/new-backend integration points for a "Gamelog by Transcript

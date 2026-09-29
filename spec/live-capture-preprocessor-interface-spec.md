@@ -60,13 +60,27 @@ re-litigated by a future implementer:
    (analogous to Whisper's `initial_prompt`, per §4.2 of the main spec) but is never
    matched, resolved to an Oracle ID, or cross-referenced by this component. That
    stays entirely in Live Capture Synthesis.
-4. **Engine-agnostic, dual-engine by design.** The contract supports multiple
-   interchangeable engines per media type, selectable per request or by deployment
-   default — not one hardcoded approach.
+4. **Engine-agnostic, many-option by design.** For automated, no-external-account
+   engines (§4.1), the contract supports multiple interchangeable engines per media
+   type, selectable per request or by deployment default. For LLM-based recognition
+   specifically, "many options" is solved a different way (§4.2, §6): rather than this
+   service integrating N vision/audio-LLM providers and holding N sets of API keys,
+   it generates the prompt and lets the human run it in **any** LLM they already have
+   access to — a genuinely open-ended set of "engines" with zero credentials held by
+   this service.
 
 ## 4. Interface Contract
 
-### `POST /api/preprocess`
+There are two distinct ways text gets produced, because they have fundamentally
+different trust/credential models:
+
+- **§4.1 Automated engines** — this service holds the code (and, if needed, a local
+  binary) and returns `extracted_text` synchronously from bytes you send it.
+- **§4.2 Bring-your-own-LLM** — this service holds no LLM credentials at all. It
+  generates a prompt; you run it yourself in whichever LLM you have access to,
+  attaching the original file; you paste the raw result back to be parsed.
+
+### 4.1 `POST /api/preprocess` (automated engines)
 
 **Request:**
 ```json
@@ -75,7 +89,7 @@ re-litigated by a future implementer:
   "media_base64": "<base64-encoded raw file bytes, no data-URL prefix>",
   "media_filename": "note_sheet_page1.jpg",
   "vocabulary_hint": ["Sol Ring", "Niv-Mizzet Reborn", "Kenrith, the Returned King"],
-  "engine": "vision_llm"
+  "engine": "tesseract"
 }
 ```
 
@@ -92,7 +106,7 @@ re-litigated by a future implementer:
 {
   "success": true,
   "media_type": "image",
-  "engine_used": "vision_llm",
+  "engine_used": "tesseract",
   "extracted_text": "T1: Sol Ring\nT6: BOOM\n...",
   "confidence": 0.74,
   "segments": [
@@ -119,47 +133,90 @@ turn/player labels — adding those would be re-absorbing the S5b job into S5a.
   reference implementation's v1 audio deferral, §6) surfaces cleanly rather than
   crashing.
 
+### 4.2 `POST /api/preprocess/prompt` (generate a prompt to run yourself)
+
+Takes no file bytes — the caller already has the original file and will attach it
+themselves wherever they run this.
+
+**Request:**
+```json
+{
+  "media_type": "image",
+  "vocabulary_hint": ["Sol Ring", "Niv-Mizzet Reborn"]
+}
+```
+
+**Response:**
+```json
+{
+  "media_type": "image",
+  "prompt": "<full, self-contained prompt text — copy-paste ready>",
+  "instructions": "Paste this prompt into any LLM that accepts image input (ChatGPT, Claude.ai, Gemini, ...), attach the original file, then POST the raw response to /api/preprocess/parse.",
+  "expected_response_format": "json"
+}
+```
+
+The prompt is self-contained (task instructions + output schema + the vocabulary
+hint inlined, if given) so it works standalone in any chat UI, not just an API call —
+there's no separate "system prompt" field assumed to exist.
+
+### 4.3 `POST /api/preprocess/parse` (parse a manually-obtained response)
+
+**Request:**
+```json
+{
+  "media_type": "image",
+  "raw_response": "<verbatim text pasted back from whatever LLM the human ran>"
+}
+```
+
+**Response:** identical shape to §4.1's success response, with `engine_used: "manual"`.
+Tolerates the response being wrapped in prose or a markdown fence — extracts the first
+JSON object found, same tolerance a chat UI's copy-paste is expected to introduce.
+A response that still isn't parseable JSON after that returns `400`.
+
 ### `GET /health`
 
 ```json
-{ "status": "ok", "engines": { "image": { "vision_llm": true, "tesseract": true }, "audio": {} } }
+{ "status": "ok", "engines": { "image": { "tesseract": true }, "audio": {} } }
 ```
 
-Lets a caller discover capabilities before calling `/api/preprocess` — which engines
-are actually configured and reachable for which media types.
+Reports automated engines only (§4.1) — the bring-your-own-LLM path (§4.2/§4.3) has
+no "availability" to report, since it runs outside this service entirely.
 
-## 5. Engine Registry & Selection Semantics
+## 5. Engine Registry & Selection Semantics (§4.1 only)
 
-An implementation registers zero or more engines per `media_type`. Each `media_type`
-has a deployment-configured default engine id, used when the request omits `engine`.
-A request naming an unregistered `engine` for that `media_type` gets `400`; a
-`media_type` with no engines registered at all gets `501` regardless of whether
-`engine` was specified.
+An implementation registers zero or more automated engines per `media_type`. Each
+`media_type` has a deployment-configured default engine id, used when the request
+omits `engine`. A request naming an unregistered `engine` for that `media_type` gets
+`400`; a `media_type` with no engines registered at all gets `501` regardless of
+whether `engine` was specified. This registry only concerns §4.1 — it has no bearing
+on §4.2/§4.3, which aren't provider-specific at all.
 
 ## 6. Reference Implementation Scope (v1)
 
 A reference implementation (`mamo-preprocessor`) exists for this contract with the
 following honest v1 scope:
 
-- **Image (`media_type: "image"`)**: two engines shipped —
-  - `vision_llm` — a vision-capable LLM call, prompted to return strict per-line JSON
-    (so `segments` reflects real model output) and to mark unreadable spans
-    `[illegible]` rather than guess. Expected to be the stronger engine for this
-    project's actual use case (handwritten Commander Game Note Sheets) — already
-    informally validated this session (§3.4.1's legibility finding was produced by
-    exactly this kind of read).
-  - `tesseract` — a traditional OCR engine, included so the interface is genuinely
-    swappable (not vision-LLM-with-a-vestigial-second-enum-value), as a free/local/
-    no-API-key fallback, and as the likely better choice later for printed-text inputs
-    this pipeline doesn't have yet. `vocabulary_hint` is wired via Tesseract's
-    `--user-words` dictionary-biasing flag — documented honestly as having much less
-    effect on cursive handwriting than on printed text.
-- **Audio (`media_type: "audio"`)**: **no engine shipped in v1.** The contract fully
-  supports it; a call returns the `501 engine_not_configured` response above. Real
-  audio-to-text already happens today in this project's production path via an
+- **Automated engines (§4.1)**: `tesseract` (image only) — a traditional OCR engine,
+  free/local/no-API-key. `vocabulary_hint` is wired via Tesseract's `--user-words`
+  dictionary-biasing flag — documented honestly as having much less effect on
+  cursive handwriting than on printed text. No automated engine for `audio` in v1.
+- **Bring-your-own-LLM (§4.2/§4.3)**: supports both `image` and `audio` — one prompt
+  template per media type (`src/prompts/`), each asking for strict per-segment JSON
+  output and instructing the model to mark unreadable/inaudible spans `[illegible]`/
+  `[inaudible]` rather than guess, the same discipline `recap-inputs/notes.md` already
+  used by hand this session. This is the primary path for the actual use case
+  (handwritten Commander Game Note Sheets) — a vision-capable LLM run this way was
+  already informally validated this session (§3.4.1's legibility finding came from
+  exactly this kind of read). It deliberately replaces holding direct API integrations
+  against specific providers (Anthropic/OpenAI/Gemini/...): "many options" is
+  satisfied by letting the human pick any LLM they already have access to, rather
+  than this service maintaining N credentialed integrations and picking favorites.
+  Real audio-to-text already happens today in this project's production path via an
   external tool ("Emmah"), outside this codebase, whose output text flows directly
-  into Live Capture Synthesis unchanged. Building a real ASR engine here would be
-  speculative infrastructure with nothing concrete to verify against yet.
+  into Live Capture Synthesis unchanged — §4.2/§4.3 for audio is an additional option
+  alongside that, not a replacement for it.
 
 ## 7. Non-Goals
 
@@ -187,19 +244,21 @@ transcription to check recall against (`recap-inputs/notes.md`,
 "Card Entity Recognition Precision & Recall": case-insensitive substring recall against
 a fixed list of already-confirmed facts (Sol Ring/T1, BOOM/T6, the Niv-Mizzet
 commander cast/T9, World Tree, Scion of Draca, Command Tower/Bloom Tender, Esper
-Sentinel), not exact-transcription matching — the ground truth itself is partial. See
-`mamo-preprocessor/tests/verify_against_note_sheet_fixture.py` for the runnable
-version of this protocol.
+Sentinel), not exact-transcription matching — the ground truth itself is partial.
+
+The automated `tesseract` engine (§4.1) can be benchmarked end-to-end by a script.
+The bring-your-own-LLM path (§4.2/§4.3) cannot be — there's a human in the loop by
+design — so its verification mode fetches the prompt and the rasterized page, waits
+for a human to paste back what their LLM produced, then scores that pasted response
+the same way. See `mamo-preprocessor/tests/verify_against_note_sheet_fixture.py`.
 
 ## 10. Open Questions / Future Work
 
-- **Audio engine shape.** Sketch, not built: an `external_http` engine that forwards
-  audio bytes to a configured `AUDIO_ASR_ENDPOINT_URL` and normalizes the response —
-  cheap to add once a concrete ASR backend (a documented Emmah endpoint, or a real
-  Whisper deployment) exists to point it at.
-- **Alternate vision providers.** The reference `vision_llm` engine is written against
-  one provider; the contract doesn't assume which. A deployment could swap providers
-  without changing this spec.
+- **Audio engine shape (§4.1).** Sketch, not built: an `external_http` engine that
+  forwards audio bytes to a configured `AUDIO_ASR_ENDPOINT_URL` and normalizes the
+  response — cheap to add once a concrete ASR backend (a documented Emmah endpoint, or
+  a real Whisper deployment) exists to point it at. Independent of §4.2/§4.3, which
+  already covers audio today via the manual path.
 - **Barcode/Data-Matrix identification.** `mamo-companion` already has a working
   optical card-identification path (`components/DataMatrixScanner.tsx` +
   `proxy-printing/barcode_stamper.py`) for proxy cards with a printed badge — a
