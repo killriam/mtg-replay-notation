@@ -303,11 +303,11 @@ flowchart TD
         P["Hand Photos"]
     end
 
-    subgraph Extract["Perception & Extraction (S5)<br/>each source -&gt; structured, comparable claims"]
-        ET["ASR + decklist-prior matching<br/>-&gt; timestamped card/action claims"]
-        EN["OCR on turn cells<br/>-&gt; turn-anchored card claims"]
-        EK["JSON parse<br/>-&gt; round-anchored life/elim events"]
-        EP["Vision card recognition<br/>-&gt; confirmed hand-contents claims"]
+    subgraph Extract["Perception & Extraction (S5)<br/>each source -&gt; structured claims, each with its own confidence"]
+        ET["ASR + decklist-prior matching<br/>-&gt; timestamped card/action claims<br/>+ confidence"]
+        EN["OCR on turn cells<br/>-&gt; turn-anchored card claims<br/>+ confidence"]
+        EK["JSON parse<br/>-&gt; round-anchored life/elim events<br/>+ confidence"]
+        EP["Vision card recognition<br/>-&gt; confirmed hand-contents claims<br/>+ confidence"]
     end
 
     T --> ET
@@ -329,6 +329,23 @@ flowchart TD
     H --> O["game_log.md + game_recap_instance.md<br/>every entry carries its own confidence + source"]
     F --> O
 ```
+
+**Every extractor emits the same shape of object, regardless of source.** Cross-validation can only compare claims pairwise (§6) if they already agree on structure — confidence and provenance are metadata the extractor attaches at emission time, not something inferred later by whatever consumes the claim:
+
+```json
+{
+  "claim_type": "CAST | DAMAGE | LIFE_CHANGE | ELIMINATION | HAND_CONTENTS | GAME_END",
+  "subject": "<player>",
+  "target": "<player | null>",
+  "value": "<card name | amount | outcome>",
+  "anchor": { "kind": "audio_timestamp | sheet_turn | tracker_round", "value": "..." },
+  "confidence": 0.0,
+  "source": "transcript | note_sheet | tracker_export | hand_photo",
+  "evidence": "<verbatim quote | OCR text | raw JSON field this was derived from>"
+}
+```
+
+This isn't hypothetical — `playgroup_ground_truth.json`'s `log_l1` array already emits exactly this shape (`round`, `type`, `source_player`/`target_player`, `amount`, `confidence`, `source`), and it's what let this session's cross-validation actually run: every claim carrying its own `anchor.kind` is precisely what stopped tracker rounds, sheet turns, and audio timestamps from being silently treated as one clock (see §3.5's counter-axis note). A claim missing `confidence` or `anchor` can't be cross-validated at all — it can only be trusted or discarded wholesale, which is the failure mode §3.5.1 above describes.
 
 A confirmed fact becomes an entry; a conflict between two independent sources (right branch — the actual Price-of-Progress round-boundary contradiction from this session, still unresolved as of this writing) is flagged and left open rather than picked one way and asserted with the same confidence as everything else. This is the property a single-source pipeline (audio-only, or even audio+decklist-prior) cannot have: it has no second opinion to disagree with itself.
 
