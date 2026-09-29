@@ -14,7 +14,7 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 | **Phase 2** | Architecture & Protocol Specification |  **Completed** | [Live Game Capture Spec v1.0.0](./live-game-capture-spec.md) detailing ingestion, decklist priors, ASR biasing, fusion, and replay emission. |
 | **Phase 3** | Ground-Truth Replay Target (`ground_truth_replay.json`) | 🟡 **In Progress** | Manual human-annotated MTG Replay Notation L1 events for the 2026-08-28 games to serve as gold standard evaluation. Extended by a second, independently-sourced ground truth for `2026-09-26-session` — see Phase 3b. |
 | **Phase 3b** | Third-Party Tracker Ground Truth & Second Dataset | ✅ **Completed** | `2026-09-26-session` archived (5-player Commander, ~6hr ambient capture) with a Playgroup.gg tracker export cross-referenced into `playgroup_ground_truth.json`. Drove three new spec patterns: §3.5 Third-Party Digital Life-Tracker Cross-Validation, the diarization-fallback note in §3.1, and §3.6 Non-Game Content Segmentation & Redaction. |
-| **Phase 3c** | Multiplayer Synthesis & Frontend Recap Integration | 🟡 **In Progress** (step 1/4 done) | Generalize the existing (currently 2-player, hardcoded-stub) `liveCaptureSynthesizer.ts` to real N-player synthesis; ship a `GameRecapView` reachable from a new playgroup "Games" tab. See detail section below. |
+| **Phase 3c** | Multiplayer Synthesis & Frontend Recap Integration | 🟡 **In Progress, replanning** | N-player synthesis logic is built and tested, but was wired into the wrong host (`gameLogsController`/`game_logs`) — see [Live Capture Service Architecture](./live-capture-service-architecture.md) for the correction before continuing. See detail section below. |
 | **Phase 4** | Decklist-Biased ASR & Dialogue Intent Parser | ⚪ *Planned* | Python/FastAPI module extracting card entities & game actions from spoken dialogue with Whisper vocabulary prompting. |
 | **Phase 5** | Companion App & Live Telemetry Integration | ⚪ *Planned* | Audio capture stream / upload button & telemetry synchronization hooks in `mamo-companion`. |
 | **Phase 6** | Computer Vision Playmat Tracker | ⚪ *Planned* | OpenCV/YOLO top-down playmat card detector, zone classifier, and tap/untap state detector. |
@@ -52,6 +52,16 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 **Confirmed scope decisions**: this feature is **playgroup-scoped, not deck-scoped**, and its
 recap data lives alongside the existing **`game_feedback_*` (live game feedback) tables**,
 not `game_logs` (which stays the technical replay layer) or a new top-level table.
+
+**Correction (2026-09-29)**: the section immediately below, "build on this, don't replace
+it," was wrong about *what* to build on. `/api/gamelog/synthesize` existing and being
+reachable made it the path of least resistance, not the right architectural home -
+`gameLogsController`/`game_logs` is for parsing already-structured Forge replay uploads,
+not for fusing messy multi-source live-capture data. See
+[Live Capture Service Architecture](./live-capture-service-architecture.md) for the
+corrected design (a distinct Live Capture Synthesis component) before doing any more
+work against this endpoint. The fusion logic itself (N-player support, real
+life/elimination tracking) is correct and is being re-homed, not rewritten.
 
 ### The existing connection point (build on this, don't replace it)
 
