@@ -15,6 +15,7 @@ Tracking implementation milestones, benchmark datasets, and progress for the **L
 | **Phase 3** | Ground-Truth Replay Target (`ground_truth_replay.json`) | 🟡 **In Progress** | Manual human-annotated MTG Replay Notation L1 events for the 2026-08-28 games to serve as gold standard evaluation. Extended by a second, independently-sourced ground truth for `2026-09-26-session` — see Phase 3b. |
 | **Phase 3b** | Third-Party Tracker Ground Truth & Second Dataset | ✅ **Completed** | `2026-09-26-session` archived (5-player Commander, ~6hr ambient capture) with a Playgroup.gg tracker export cross-referenced into `playgroup_ground_truth.json`. Drove three new spec patterns: §3.5 Third-Party Digital Life-Tracker Cross-Validation, the diarization-fallback note in §3.1, and §3.6 Non-Game Content Segmentation & Redaction. |
 | **Phase 3c** | Multiplayer Synthesis & Frontend Recap Integration | 🟡 **In Progress, replanning** | N-player synthesis logic is built and tested, but was wired into the wrong host (`gameLogsController`/`game_logs`) — see [Live Capture Service Architecture](./live-capture-service-architecture.md) for the correction before continuing. See detail section below. |
+| **S5a** | Live Capture Preprocessor (media → raw text) | 🟡 **Scaffolded, unverified live** | New standalone service `mamo-preprocessor/` (not yet a registered submodule — see detail section below) implementing [the interface spec](./live-capture-preprocessor-interface-spec.md): `POST /api/preprocess`, `GET /health`, dual OCR engines (`vision_llm`, `tesseract`). Splits §5 of the main spec into S5a (this) / S5b (Live Capture Synthesis). |
 | **Phase 4** | Decklist-Biased ASR & Dialogue Intent Parser | ⚪ *Planned* | Python/FastAPI module extracting card entities & game actions from spoken dialogue with Whisper vocabulary prompting. |
 | **Phase 5** | Companion App & Live Telemetry Integration | ⚪ *Planned* | Audio capture stream / upload button & telemetry synchronization hooks in `mamo-companion`. |
 | **Phase 6** | Computer Vision Playmat Tracker | ⚪ *Planned* | OpenCV/YOLO top-down playmat card detector, zone classifier, and tap/untap state detector. |
@@ -138,7 +139,59 @@ view is solid.
 
 ---
 
+## S5a: Live Capture Preprocessor
+
+A narrower split-off from Phase 3c's work, prompted by a requirement Live Capture
+Synthesis doesn't have: this component must be an **interchangeable microservice**
+MaMo can point at, with **zero coupling** to MaMo's own auth/user/deck systems — a
+constraint strong enough that "a bounded module inside new-backend" (the right call
+for Live Capture Synthesis, see [Live Capture Service Architecture](./live-capture-service-architecture.md))
+is the wrong call here.
+
+**Contract**: [live-capture-preprocessor-interface-spec.md](./live-capture-preprocessor-interface-spec.md)
+— `POST /api/preprocess` (media_type, media_base64, optional vocabulary_hint/engine →
+extracted_text + per-segment confidence), `GET /health`.
+
+**Reference implementation**: `mamo-preprocessor/` (Python 3.11 + FastAPI, modeled on
+`mamo-story-engine`'s structure minus its `jwt_secret`/`backend_api_url` coupling).
+`image` ships both engines in v1 (`vision_llm` — Anthropic Messages API, default;
+`tesseract` — pytesseract); `audio` is contract-only, returns `501` in v1 (real ASR
+already happens today via an external tool outside this codebase).
+
+**Verified so far**: 10 unit tests passing (routing/error-shape coverage in
+`test_health_and_errors.py`, parser-logic coverage for both engines in
+`test_engine_parsing.py`), `ruff check` clean, and a live local boot
+(`uvicorn src.main:app`) confirming `GET /health` and the `501` audio path both
+return exactly the spec's documented shape. **Not yet verified**: the actual OCR
+accuracy of either engine against the `2026-09-26-session` note-sheet fixture
+(`tests/verify_against_note_sheet_fixture.py` exists and is correct but unrun) — this
+machine has no `ANTHROPIC_API_KEY` configured and no Tesseract binary installed, so
+both engines currently report `unavailable` in `/health`. Running that verification
+is the natural next step once those two things are set up.
+
+**Not yet done**: this is a local directory with its own local git history, not yet
+a real GitHub repo or a registered submodule in the root `.gitmodules` — creating
+`killriam/mamo-preprocessor` on GitHub and wiring the submodule pointer is a
+deliberately separate step requiring the user's own GitHub action, not taken here.
+Also explicitly not done: wiring Live Capture Synthesis to actually call this service
+(out of scope for this step — see the plan's "explicitly out of scope" section).
+
+---
+
 ## Recent Updates
+
+### 2026-09-29
+- Split §5 ("Perception & Extraction") of the main spec into two components after an
+  explicit correction: media-to-text ("S5a", this update) needs to be an
+  interchangeable microservice with zero MaMo coupling, a stronger constraint than
+  Live Capture Synthesis ("S5b") carries — so they can't share one host.
+- Wrote [live-capture-preprocessor-interface-spec.md](./live-capture-preprocessor-interface-spec.md)
+  and scaffolded the reference implementation, `mamo-preprocessor/` — FastAPI service,
+  dual OCR engines (`vision_llm` default + `tesseract`), audio contract-only in v1.
+- Verified locally: 10 passing unit tests, clean `ruff check`, and a live boot
+  confirming `/health` and the `501` audio path match the spec exactly. OCR accuracy
+  against the real note-sheet fixture is written but not yet run — needs
+  `ANTHROPIC_API_KEY` and a local Tesseract install, neither present on this machine.
 
 ### 2026-09-27
 - Investigated real MaMoFrontend/new-backend integration points for a "Gamelog by Transcript
