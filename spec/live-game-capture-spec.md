@@ -197,13 +197,44 @@ sequenceDiagram
     - `Zone_Graveyard` & `Zone_Exile`
     - `Zone_Stack` (Center board for currently resolving spells)
 
-### 3.2.1 Optical Barcode Scanning & Physical Card Identification
-- **8×18 Data Matrix (ECC200) Detection**:
-  - Top-down playmat camera scans detect the compact 8×18 rectangular Data Matrix badge located in the card's lower footer margin (`y = 879..917`, below copyright notice).
-  - Decodes either the primary slot numeric string (e.g. `"15"`) or legacy 24-bit 6-hex payload (`"<DECK:2><CARD:2><PLAYER:1><FLAGS:1>"`, e.g. `"2A0F00"`).
+### 3.2.1 Optical Barcode Scanning & Physical Slip-in Card Markers
+
+#### 8×18 Data Matrix (ECC200) Slip-in Marker Architecture
+For deterministic replay tracking, physical slip-in markers are placed in the card's extreme lower margin (inside the sleeve in front of the physical MTG card).
+
+- **Physical Marker Sizing Profiles**:
+  To ensure reliable scanning across diverse smartphone cameras (varying focal lengths and minimum focus distances) and sleeve materials (matte texture, glossy reflections), three standardized physical profiles are defined:
+
+  | Profile | Total Dimensions (W × H) | Barcode Width | Module Size | Target Reading Distance | Card Sleeve Coverage |
+  | :--- | :--- | :--- | :--- | :--- | :--- |
+  | **Small (S)** | $15.6 \times 4.9\text{ mm}$ | $10.3\text{ mm}$ | $\sim 0.49\text{ mm}$ (28 mil) | $8 - 12\text{ cm}$ (macro required) | Fits 100% inside black border; covers zero card text. |
+  | **Medium (M)** *(Recommended)* | $21.0 \times 6.8\text{ mm}$ | $14.3\text{ mm}$ | $\sim 0.68\text{ mm}$ (39 mil) | $15 - 25\text{ cm}$ (natural hand distance) | Covers bottom border + collector code; 100% rules text untouched. |
+  | **Large (L)** | $27.0 \times 8.8\text{ mm}$ | $18.5\text{ mm}$ | $\sim 0.88\text{ mm}$ (50 mil) | $20 - 35\text{ cm}$ (rapid table scan) | High-speed macro detection under severe glare or low light. |
+
+- **Optical Camera Constraint**:
+  Standard smartphone camera lenses without dedicated macro hardware cannot sharply focus closer than $\sim 12\text{ cm}$. At 4.9 mm height, an 8×18 barcode's individual modules ($0.49\text{ mm}$) span fewer than 4 camera pixels when held at comfortable playmat distance, causing decode dropouts. **Profile Medium (6.8 mm height, module size $0.68\text{ mm}$)** is the proven operational sweet spot, locking on in $< 15\text{ ms}$ at 15–25 cm distance.
+
+- **Payload Architecture Options**:
+  1. **Option A: Deck Slot Number (`1`..`100`) (Current Baseline)**:
+     - Encodes 1–3 numeric characters (e.g. `"1"`, `"15"`, `"100"`).
+     - Fits comfortably into 8×18 Data Matrix (capacity: 10 alphanumeric / 16 numeric).
+     - Preserves **individual object permanence** for identical duplicate basic lands (e.g. *Mountain #75* vs *Mountain #76*).
+     - *Limitation*: Bound to that specific deck revision; slips cannot be freely swapped across decks.
+  2. **Option B: Set Code + Collector Number (`<SET> <NUM>`, e.g. `"BLB 145"`)**:
+     - Encodes 7–9 alphanumeric characters (e.g. `"C21 263"`, `"NEO 266"`).
+     - Fits in 8×18 rectangular Data Matrix or 12×26 rectangular.
+     - **Deck-Agnostic / Reusable**: A sleeved *Sol Ring* can be transferred into any deck without reprinting slips.
+     - Cross-references directly to BigQuery catalog (`cards_transformed WHERE SetCode = 'c21' AND Number = '263'`).
+     - *Limitation*: Duplicate basic lands share the same code unless a copy suffix is appended (`"BLB 266 #1"`).
+  3. **Option C: Global Oracle Numeric ID (`1`..`35000`)**:
+     - Encodes a 5-digit global card identifier.
+     - Universal across all games and formats; compact payload fits 8×18.
+
 - **Direct Card & Owner Resolution**:
-  - Maps `card_in_deck` directly into the deck's steady slot allocation table (`slot_numbers`), achieving $100\%$ card identity confidence without visual art ambiguity or OCR error.
-  - Resolves player ownership and deck context from the pre-game Deck ID QR card scan (`https://mamo.app/deck/<deck_id>`) or match lobby seat assignment.
+  - Maps decoded payload directly to the active deck's card allocation table (`slot_numbers` or catalog entity), achieving $100\%$ identity confidence without OCR ambiguity.
+  - Resolves player ownership and seat context from the pre-game Deck QR scan (`https://mamo.app/deck/<deck_id>`) or match lobby seat assignment.
+
+---
 
 ### 3.2.2 Optical Full-Card Image Recognition with Decklist Prior & Verification Loop
 For games played without physical slip-in Data Matrix markers, the capture service and `mamo-companion` support direct camera card recognition constrained by the known 100-card decklist prior:
