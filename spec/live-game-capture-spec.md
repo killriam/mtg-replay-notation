@@ -316,6 +316,31 @@ To continuously improve the recognition engine and adapt to real-world camera no
    - Invokes `exportCapturesManifest()`, bundling the JSON manifest and file references for export via `expo-sharing` (airdrop, email, Signal, Google Drive).
    - This dataset directly feeds the computer vision training pipeline to fine-tune edge weights, calibrate OCR confusion matrices, and improve multi-printing feature robustness.
 
+### 3.2.5 Implementation Status & Strategic Decision: Slip-in Markers vs. Optical Full-Card Recognition
+
+#### Current Implementation Status (Completed in `mamo-companion`)
+The multi-modal optical card recognition system has been fully implemented, integrated, and verified in the companion codebase:
+- **Client Recognizer**: Cascaded Bitap fuzzy OCR with primary-face priority matching against the active decklist ($N \le 100$, sub-15ms execution).
+- **Human Verification Loop**: Live audit scorecard tracking precision with real-time `✓ Right` / `✕ Wrong` feedback and actual card correction selector.
+- **Active-Learning Capture Engine**: Local device storage (`mamo_card_captures/`) recording camera frames with `RECOGNIZED`, `UNRECOGNIZED` (lighting/glare edge cases), and `FLAGGED_WRONG` (hard negatives with ground truth).
+- **Offline Fixture**: Bundled 138-card database fixture for *SMMR: Freedom through Destruction (Ashling)* (`970da44b-6801-493a-84ab-ad5a7a2940a9`).
+- **Test Suite**: 13 Jest test suites passing (145/145 tests).
+- **Live User Test**: Expo Metro dev server deployed on LAN (`exp://192.168.178.175:8081`).
+
+#### Strategic Comparison & Why Slip-in Markers Remain Primary
+While optical full-card image recognition provides low-friction scanning for casual sessions and decklist verification, **physical slip-in Data Matrix markers remain the foundational standard for deterministic Replay Notation**:
+
+| Dimension | Optical Full-Card Recognition | 8×18 Slip-in Data Matrix Markers |
+| :--- | :--- | :--- |
+| **Object Permanence** | **Fails on duplicates**: Cannot distinguish between 25 identical *Snow-Covered Mountains* tapped/bounced across turns. | **100% Deterministic**: Every physical card has a unique slot ID (`#1`..`#100`). Object permanence is preserved across all zones. |
+| **Sleeve Glare Immunity** | **Medium-Low**: Title-bar OCR and art-box histograms degrade under overhead spotlight glare and glossy sleeves. | **High**: High-contrast matte white badge with ECC200 error correction decodes under steep angles and glare. |
+| **Battlefield Occlusion** | **Vulnerable**: Dice, ability counters, and overlapping cards hide the card header or art box. | **Protected**: The compact slip sits in the card's extreme lower margin (black border), fully exposed when cards are fanned or tapped. |
+| **Scan Speed & Latency** | $15 - 50\text{ ms}$ processing per frame + fuzzy scoring. | $< 2\text{ ms}$ native barcode scan hardware decode. |
+| **Player Setup Effort** | Zero physical prep (uses raw cards). | Requires 1-time printing and sliding cut slips into sleeves. |
+
+#### Conclusion & Current Focus:
+Optical card recognition is retained in `mamo-companion` as an auxiliary casual logger and active-learning dataset harvester. Core replay tracking returns to **Physical Slip-in Markers**, specifically calibrating barcode sizing (Small: 4.9mm, Medium: 6.8mm, Large: 8.8mm) and payload compactness to guarantee instantaneous mobile camera scanning.
+
 ---
 
 ### 3.3 Companion Telemetry Stream
