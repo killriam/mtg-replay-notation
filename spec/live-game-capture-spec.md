@@ -248,6 +248,76 @@ For games played without physical slip-in Data Matrix markers, the capture servi
     ```
   - The live session audit scorecard tracks real-time precision: $P = \frac{\text{Correct}}{\text{Total Verified}}$, allowing players to review or reset recognition trials during play.
 
+### 3.2.3 Multi-Modal Feature & Confidence Score Fusion
+While title-bar OCR provides the primary invariant text anchor across all 16,500 catalog printings, relying exclusively on OCR is vulnerable to sleeve reflections, glare, motion blur, partial finger occlusion, and character confusions (e.g. `O` vs `0`, `rn` vs `m`).
+
+To maximize recognition confidence and eliminate false positives, the capture engine fuses **four visual perceptual channels** with a **game-state Bayesian prior**:
+
+1. **Title OCR ($S_{\text{ocr}}$, weight $w_{\text{ocr}} = 0.45$)**:
+   - Normalized Levenshtein distance and Bitap fuzzy search against primary and secondary face titles in the deck.
+2. **Card Frame Color & Border Profile ($S_{\text{frame}}$, weight $w_{\text{frame}} = 0.20$)**:
+   - Evaluates HSL color distribution of the card border and inner pinlines (White, Blue, Black, Red, Green, Gold/Multicolor, Brown/Artifact, Gray/Land).
+   - Instantly filters out impossible color candidates (e.g. rejects a green card in a mono-red deck or distinguishes an artifact frame from a colored spell).
+3. **Mana Cost & Symbol Detection ($S_{\text{mana}}$, weight $w_{\text{mana}} = 0.20$)**:
+   - Template matching on the top-right header margin:
+     - Generic mana numeral in circular gray bubble (e.g. $\{1\}, \{2\}, \{3\}$).
+     - Colored mana pip icons ($\{W\}, \{U\}, \{B\}, \{R\}, \{G\}, \{C\}$).
+   - Validates that detected mana pips match the candidate card's `ManaCost` string.
+4. **Art-Box Color Palette Vector ($S_{\text{palette}}$, weight $w_{\text{palette}} = 0.15$)**:
+   - Computes a coarse 16-bin 3D color histogram of the art window ($y \in [0.12, 0.55]$).
+   - Cross-references the palette vector against the specific printing assigned in the deck revision.
+5. **Game-State Bayesian Legality Prior ($P(\text{legality})$)**:
+   - Evaluates real-time contextual plausibility using companion telemetry:
+     $$P(\text{legality}) = P(\text{mana\_available}) \times P(\text{zone\_legality}) \times P(\text{copies\_remaining})$$
+     - $P(\text{mana\_available}) \approx 0.05$ if the card's mana value exceeds the player's total untapped lands/mana sources.
+     - $P(\text{copies\_remaining}) = 0.00$ in singleton Commander if the card is already on the battlefield, in exile, or in the graveyard.
+     - $P(\text{turn\_phase}) \approx 0.10$ for Sorceries during opponent turns or combat steps (without flash enablers).
+
+#### Comprehensive Fused Confidence Formula
+The overall confidence score $C_{\text{fused}} \in [0.0, 1.0]$ is computed as:
+$$C_{\text{fused}} = \Big( w_{\text{ocr}} S_{\text{ocr}} + w_{\text{frame}} S_{\text{frame}} + w_{\text{mana}} S_{\text{mana}} + w_{\text{palette}} S_{\text{palette}} \Big) \times P(\text{legality})$$
+
+#### Decision Thresholds
+- **HIGH Confidence ($C \ge 0.85$)**: Direct auto-match; triggers immediate telemetry logging and haptic confirmation.
+- **MEDIUM Confidence ($0.60 \le C < 0.85$)**: Prompts player with the top 2 candidate cards for single-tap confirmation.
+- **LOW / UNRECOGNIZED ($C < 0.60$)**: Flags recognition failure, saves frame for dataset harvesting, and prompts manual deck search.
+
+---
+
+### 3.2.4 Active-Learning Failure Dataset Storage & Harvesting
+To continuously improve the recognition engine and adapt to real-world camera noise (glare, matte sleeve texture, foil curling, poor lighting, foreign-language printings), `mamo-companion` implements an automated on-device failure-harvesting loop:
+
+1. **Camera Frame Persistence**:
+   - When a card photo is captured via the camera viewfinder, the high-resolution frame is stored in the local app directory (`mamo_card_captures/` under `FileSystem.documentDirectory`).
+2. **Capture Classification Taxonomy**:
+   - Each capture is assigned one of three lifecycle statuses:
+     - `RECOGNIZED`: Confidently matched card, awaiting or verified by player.
+     - `UNRECOGNIZED`: No card candidate exceeded the confidence threshold ($C < 0.60$). Full frame preserved specifically as an edge-case training sample.
+     - `FLAGGED_WRONG`: The vision engine predicted card $A$, but the user marked `✕ Wrong` and selected card $B$ via the correction modal. This provides ground truth for hard negative calibration.
+3. **Manifest Schema (`mamo_card_captures_manifest_v1`)**:
+   - Captures are cataloged in an on-device JSON manifest persisted via `AsyncStorage`:
+     ```json
+     {
+       "id": "cap_1728643200000_a8f9",
+       "timestamp": 1728643200000,
+       "imageUri": "file:///data/user/0/.../mamo_card_captures/flagged_wrong_cap_1728643200000.jpg",
+       "deckId": "970da44b-6801-493a-84ab-ad5a7a2940a9",
+       "status": "FLAGGED_WRONG",
+       "queryText": "Ashling Flmae",
+       "predictedCard": "Ashling, Flamekin Scroller",
+       "actualCard": "Ashling the Pilgrim",
+       "confidence": "MEDIUM",
+       "score": 0.72,
+       "userVerified": true
+     }
+     ```
+4. **Dataset Export & Active-Learning Feedback**:
+   - The Verification Audit modal in `mamo-companion` exposes an **"📤 Export Captured Training Dataset"** action.
+   - Invokes `exportCapturesManifest()`, bundling the JSON manifest and file references for export via `expo-sharing` (airdrop, email, Signal, Google Drive).
+   - This dataset directly feeds the computer vision training pipeline to fine-tune edge weights, calibrate OCR confusion matrices, and improve multi-printing feature robustness.
+
+---
+
 ### 3.3 Companion Telemetry Stream
 - Real-time event timestamps sent from `mamo-companion`:
   - `TURN_CHANGED` (turn number, active player index)
