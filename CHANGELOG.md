@@ -5,6 +5,15 @@ All notable changes to the MTG Replay Notation specification will be documented 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Documentation
+- **`ai-play-guidance-spec.md` §5.3 (new)** - documents the Forge-supported `target.is_commander`,
+  `target.controller` (`own` / `opponent` / `leading_opponent`) and `target.name` condition fields,
+  the definition of `leading_opponent`, fail-closed veto semantics, and the no-match fallback.
+- **`forge-integration-guide.md`** - corrected two passages that described the no-match target
+  fallback as `getWorstAI()`; Forge now picks the highest vanilla removal priority.
+
 ## [1.9.6] - 2026-09-21
 
 ### Changed

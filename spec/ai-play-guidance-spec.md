@@ -325,6 +325,33 @@ $$\text{Final Target Score} = \text{Base Threat} + \sum (\text{Matched Condition
 }
 ```
 
+### 5.3 Forge target fields and veto semantics
+
+Forge matches a rule by `source_card` and supports these `target.*` condition fields for a
+`Card` target (a counterspell rule uses `target_spell.*` instead):
+
+| Field | Ops | Values |
+|-------|-----|--------|
+| `target.is_commander` | `==`, `!=` | boolean; true for a commander (Forge `Card.isCommander()`), own or opposing |
+| `target.controller` | `==`, `!=` | `"own"` (controlled by the casting AI), `"opponent"` (any opponent of the AI), `"leading_opponent"` |
+| `target.name` | `==`, `!=` | exact card name |
+| `target.role`, `target.canonical_threat_tier`, `target.has_indestructible` | as before | as before |
+
+`leading_opponent` is the opponent with the highest total creature value (Forge's
+`ComputerUtilCard.evaluateCreatureList`, the measure `state.self_board_presence_ahead` uses). Ties
+are broken by higher life, then turn order. It is the board leader, not simply the highest life
+total.
+
+**Vetoes fail closed.** A veto whose condition references an unknown field, or gives
+`target.controller` a value or operator it does not support, applies to **every** candidate. The
+spell is held (`target_all_vetoed`) and Forge logs an ERROR when the rule is loaded. A broken
+protection therefore keeps protecting instead of silently allowing the target the author forbade.
+`evaluation_ladder` conditions are unchanged: an unknown field there still counts as satisfied.
+
+**No-match fallback.** When vetoes leave survivors and no ladder step matches any of them (including
+a rule with no ladder), Forge picks the survivor with the highest vanilla removal priority, the same
+pick it makes without guidance.
+
 ---
 
 ## 6. Pillar 3: Play Preferences & State-Machine Tactical Ladders (`play_preferences`)

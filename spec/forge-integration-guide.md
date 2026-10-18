@@ -1375,8 +1375,9 @@ Extended `AiGuidanceProfile.java`:
   guidance-spec.md §9.2's own schema — used as authored data, not a hardcoded Forge-side list).
 - New `chooseGuidedRemovalTarget(SpellAbility, Player, Game, Iterable<Card>)`: filters candidates
   by veto conditions, then picks by first-matching-ladder-step score among the survivors, falling
-  back to `ComputerUtilCard.getWorstAI()` (vanilla evaluation) among the *post-veto* survivors if
-  no ladder step matches any of them. Returns `null` only when every candidate was vetoed — a
+  back to `ComputerUtilCard.getVanillaBestRemovalTargetAI()` (highest vanilla removal priority;
+  originally `getWorstAI()`, which picked the weakest permanent - corrected) among the *post-veto*
+  survivors if no ladder step matches any of them. Returns `null` only when every candidate was vetoed — a
   case callers must not confuse with "no rule at all" (§12.7.2 explains why the split matters).
 
 Extended `PredicateEvaluator.java`: two new leaf fields, `target.canonical_threat_tier` and
@@ -1766,8 +1767,8 @@ turned out to conflate two different things: the *original spec's* proposed hook
 `evaluateCreature()`/`evaluatePermanent()`", which genuinely would need it) versus what Slice 2
 actually built (`chooseGuidedRemovalTarget()`, hooked into `getBestRemovalTargetAI()` directly).
 That code path was already Card-generic the whole time — `PredicateEvaluator`'s `target.*` fields
-never check card type, and the vanilla-evaluation fallback (`ComputerUtilCard.getWorstAI()` →
-`getWorstPermanentAI()`) already handles any mix of creatures/artifacts/enchantments/lands, checked
+never check card type, and the no-match fallback (`ComputerUtilCard.getVanillaBestRemovalTargetAI()`;
+it was `getWorstAI()` → `getWorstPermanentAI()` before the veto-only fix) handles any mix of creatures/artifacts/enchantments/lands, checked
 by reading its body rather than assumed. `targetRankingWorksForNonCreaturePermanentsToo`
 (`AiGuidanceTargetRankingTest`) proves it: Ashnod's Altar (an artifact, tagged `engine_core`) is
 correctly chosen over an untagged creature. No production code changed for this one — only the
