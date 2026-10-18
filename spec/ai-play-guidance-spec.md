@@ -354,6 +354,26 @@ protection therefore keeps protecting instead of silently allowing the target th
 a rule with no ladder), Forge picks the survivor with the highest vanilla removal priority, the same
 pick it makes without guidance.
 
+
+### 5.4 Delivering the guidance: `[AiGuidance]` section or `DecklistSpec$`
+
+Forge reads a deck's guidance from either of two places; both build the same profile.
+
+- **`[AiGuidance]` section in the `.dck`** (preferred, self-contained). Writer rules:
+  - one section, any position in the file (Forge matches the name case-insensitively); MaMo writes it last;
+  - exactly **one** non-empty body line of compact JSON starting with `{`, in the same
+    `{"deck_rules":{"ai_guidance":{...}}}` shape as a DecklistSpec file;
+  - omit the section when the deck has no annotations;
+  - write the JSON **ASCII-only** (`\uXXXX` escapes for non-ASCII characters): Forge reads the file as UTF-8 but
+    re-saves it in the platform charset, which would corrupt raw non-ASCII on a save from the deck editor.
+- **`AiHints=DecklistSpec$<path>`** in `[metadata]`: an absolute path, or one relative to Forge's working directory
+  (`forge-gui/` for a normal launch). Unchanged.
+- If a deck has both, the `[AiGuidance]` section wins and `DecklistSpec$` is not consulted.
+- An unusable section (empty, more than one line, invalid JSON, not an object, or no `deck_rules.ai_guidance`)
+  logs an ERROR naming the deck and leaves guidance **off**; it does not fall back to `DecklistSpec$`.
+- Forge keeps the section text unchanged across deck-editor save, copy and rename. Older Forge builds ignore the
+  section (unknown sections are skipped) but drop it if the deck is re-saved from that build.
+
 ---
 
 ## 6. Pillar 3: Play Preferences & State-Machine Tactical Ladders (`play_preferences`)

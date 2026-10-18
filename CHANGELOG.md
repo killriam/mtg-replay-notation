@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ai-play-guidance-spec.md` §5.3 (new)** - documents the Forge-supported `target.is_commander`,
   `target.controller` (`own` / `opponent` / `leading_opponent`) and `target.name` condition fields,
   the definition of `leading_opponent`, fail-closed veto semantics, and the no-match fallback.
+- **`ai-play-guidance-spec.md` §5.4 (new)** - documents the `[AiGuidance]` deck-file section, its writer rules,
+  precedence over `DecklistSpec$`, and failure behaviour.
 - **`forge-integration-guide.md`** - corrected two passages that described the no-match target
   fallback as `getWorstAI()`; Forge now picks the highest vanilla removal priority.
 
