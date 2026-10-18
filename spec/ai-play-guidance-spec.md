@@ -335,12 +335,14 @@ Forge matches a rule by `source_card` and supports these `target.*` condition fi
 | `target.is_commander` | `==`, `!=` | boolean; true for a commander (Forge `Card.isCommander()`), own or opposing |
 | `target.controller` | `==`, `!=` | `"own"` (controlled by the casting AI), `"opponent"` (any opponent of the AI), `"leading_opponent"` |
 | `target.name` | `==`, `!=` | exact card name |
-| `target.role`, `target.canonical_threat_tier`, `target.has_indestructible` | as before | as before |
+| `target.role`, `target.canonical_threat_tier`, `target.has_indestructible` | `==`, `!=` | as before (`has_indestructible` is also true for Hexproof) |
 
 `leading_opponent` is the opponent with the highest total creature value (Forge's
 `ComputerUtilCard.evaluateCreatureList`, the measure `state.self_board_presence_ahead` uses). Ties
 are broken by higher life, then turn order. It is the board leader, not simply the highest life
 total.
+
+These six fields accept only `==` and `!=`; any other operator makes a veto invalid (see below).
 
 **Vetoes fail closed.** A veto whose condition references an unknown field, or gives
 `target.controller` a value or operator it does not support, applies to **every** candidate. The
